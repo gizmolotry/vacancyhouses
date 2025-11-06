@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Limerick Vacant Properties</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; }
+#map { position: absolute; inset: 0; }
+
+.header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 9998;
+    background: linear-gradient(135deg, rgba(44,62,80,0.97), rgba(52,73,94,0.97));
+    color: white; padding: 12px 20px; box-shadow: 0 2px 20px rgba(0,0,0,0.3);
+}
+.header-content { max-width: 1400px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
+.header h1 { font-size: 20px; font-weight: 600; }
+.header-stats { display: flex; gap: 25px; font-size: 13px; flex-wrap: wrap; }
+.stat-item { display: flex; flex-direction: column; align-items: center; }
+.stat-value { font-size: 24px; font-weight: 700; color: #3498db; }
+.stat-label { font-size: 11px; opacity: 0.85; margin-top: 2px; }
+
+.controls {
+    position: fixed; top: 80px; left: 20px; z-index: 9999;
+    background: rgba(255,255,255,0.97); border-radius: 12px;
+    padding: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); width: 280px;
+}
+.control-section { margin-bottom: 15px; }
+.control-section:last-child { margin-bottom: 0; }
+.control-label { font-size: 12px; font-weight: 600; color: #2c3e50; margin-bottom: 8px; display: block; }
+.view-mode { display: flex; gap: 8px; }
+.mode-btn {
+    flex: 1; padding: 8px 12px; border: 2px solid #ddd; background: white;
+    border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;
+    transition: all 0.2s; text-align: center;
+}
+.mode-btn.active { background: #3498db; color: white; border-color: #3498db; }
+.mode-btn:hover:not(.active) { border-color: #3498db; background: #ecf0f1; }
+
+.filter-section { margin-top: 12px; }
+.urgency-filters { display: flex; flex-direction: column; gap: 6px; }
+.urgency-filter {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+    border-radius: 6px; cursor: pointer; transition: background 0.2s;
+}
+.urgency-filter:hover { background: #ecf0f1; }
+.urgency-filter input[type="checkbox"] { cursor: pointer; }
+.urgency-dot { width: 12px; height: 12px; border-radius: 50%; }
+.urgency-label { font-size: 11px; flex: 1; }
+.urgency-count { font-size: 11px; font-weight: 600; color: #7f8c8d; }
+
+.legend {
+    position: fixed; bottom: 20px; right: 20px; z-index: 9999;
+    background: rgba(255,255,255,0.97); border-radius: 12px;
+    padding: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); max-width: 300px;
+}
+.legend-title { font-size: 13px; font-weight: 700; color: #2c3e50; margin-bottom: 10px; }
+.legend-item { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 11px; }
+.legend-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+.legend-label { flex: 1; color: #34495e; }
+.legend-value { font-weight: 600; color: #7f8c8d; }
+
+.hovercard {
+    position: fixed; z-index: 10000; pointer-events: none;
+    background: rgba(255,255,255,0.98); border: 2px solid #3498db;
+    border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    padding: 12px 14px; font-size: 12px; display: none; max-width: 380px;
+    max-height: 70vh; overflow-y: auto;
+}
+.hovercard-header { 
+    font-weight: 700; font-size: 14px; color: #2c3e50; 
+    margin-bottom: 10px; border-bottom: 2px solid #3498db; padding-bottom: 8px; 
+}
+.cluster-summary {
+    background: #ecf0f1; padding: 8px 10px; border-radius: 6px; margin-bottom: 10px;
+    font-size: 11px;
+}
+.composition-bar {
+    display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin: 6px 0;
+}
+.composition-segment { height: 100%; }
+.property-item {
+    background: #f8f9fa; border-left: 4px solid #3498db;
+    padding: 8px 10px; margin: 8px 0; border-radius: 4px;
+}
+.property-header {
+    font-weight: 600; color: #2c3e50; margin-bottom: 4px; font-size: 11px;
+}
+.property-detail { font-size: 10px; color: #7f8c8d; margin: 2px 0; }
+.urgency-badge {
+    display: inline-block; padding: 2px 6px; border-radius: 3px;
+    font-size: 9px; font-weight: 700; color: white; margin-left: 6px;
+}
+
+@media (max-width: 768px) {
+    .controls { width: 240px; top: 100px; }
+    .legend { bottom: 10px; right: 10px; max-width: 200px; }
+}
+</style>
+</head><body>
+
+<div class="header">
+    <div class="header-content">
+        <h1>🏘️ Limerick Vacant Properties</h1>
+        <div class="header-stats">
+            <div class="stat-item">
+                <div class="stat-value" id="stat-total">0</div>
+                <div class="stat-label">Properties</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="stat-locations">0</div>
+                <div class="stat-label">Locations</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="stat-avg">0</div>
+                <div class="stat-label">Avg. Weeks</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="stat-crisis">0</div>
+                <div class="stat-label">Crisis (2+ yrs)</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="map"></div>
+<div id="card" class="hovercard"></div>
+
+<div class="controls">
+    <div class="control-section">
+        <span class="control-label">Color by</span>
+        <div class="view-mode">
+            <button class="mode-btn active" data-mode="urgency">Urgency</button>
+            <button class="mode-btn" data-mode="reason">Reason</button>
+        </div>
+    </div>
+    
+    <div class="control-section filter-section">
+        <span class="control-label">Filter by Urgency</span>
+        <div class="urgency-filters" id="urgency-filters"></div>
+    </div>
+</div>
+
+<div class="legend" id="legend"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js"></script>
+<script>
+const DATA = {"clusters": [{"cluster_id": 0, "lon": -8.719826499999998, "lat": 52.51548639999999, "property_count": 7, "properties": [{"address": "CROOM", "reason": "Major Refurbishment", "weeks": 168, "years": 3.2, "months": 38.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 58800}, {"address": "CROOM", "reason": "Allocated", "weeks": 66, "years": 1.3, "months": 15.2, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#27ae60", "cost_burden": 23100}, {"address": "CROOM", "reason": "On-hold", "weeks": 95, "years": 1.8, "months": 21.9, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#7f8c8d", "cost_burden": 33250}, {"address": "CROOM", "reason": "Awaiting Minor Repairs", "weeks": 28, "years": 0.5, "months": 6.5, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 9800}, {"address": "CROOM", "reason": "Allocated", "weeks": 1, "years": 0.0, "months": 0.2, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#27ae60", "cost_burden": 350}, {"address": "CROOM", "reason": "Allocated", "weeks": 1, "years": 0.0, "months": 0.2, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#27ae60", "cost_burden": 350}, {"address": "CROOM", "reason": "Awaiting Minor Repairs", "weeks": 7, "years": 0.1, "months": 1.6, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#3498db", "cost_burden": 2450}], "total_weeks": 366, "max_weeks": 168, "min_weeks": 1, "avg_weeks": 52.3, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"routine": 3, "critical": 2, "urgent": 1, "crisis": 1}, "urgency_color": "#8b0000", "total_cost": 128100}, {"cluster_id": 1, "lon": -9.052933100000002, "lat": 52.448892799999996, "property_count": 11, "properties": [{"address": "NEWCASTLE WEST", "reason": "For Demolition", "weeks": 107, "years": 2.1, "months": 24.7, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#8e44ad", "cost_burden": 37450}, {"address": "NEWCASTLE WEST", "reason": "Major Refurbishment", "weeks": 135, "years": 2.6, "months": 31.2, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 47250}, {"address": "NEWCASTLE WEST", "reason": "Major Refurbishment", "weeks": 282, "years": 5.4, "months": 65.1, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 98700}, {"address": "NEWCASTLE WEST", "reason": "Allocated", "weeks": 55, "years": 1.1, "months": 12.7, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#27ae60", "cost_burden": 19250}, {"address": "NEWCASTLE WEST", "reason": "Major Refurbishment", "weeks": 55, "years": 1.1, "months": 12.7, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 19250}, {"address": "NEWCASTLE WEST", "reason": "Awaiting Minor Repairs", "weeks": 57, "years": 1.1, "months": 13.2, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#3498db", "cost_burden": 19950}, {"address": "NEWCASTLE WEST", "reason": "Major Refurbishment", "weeks": 48, "years": 0.9, "months": 11.1, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#e67e22", "cost_burden": 16800}, {"address": "NEWCASTLE WEST", "reason": "Awaiting Minor Repairs", "weeks": 9, "years": 0.2, "months": 2.1, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 3150}, {"address": "NEWCASTLE WEST", "reason": "Awaiting Minor Repairs", "weeks": 13, "years": 0.2, "months": 3.0, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 4550}, {"address": "NEWCASTLE WEST", "reason": "Allocated", "weeks": 1, "years": 0.0, "months": 0.2, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#27ae60", "cost_burden": 350}, {"address": "NEWCASTLE WEST", "reason": "Allocated", "weeks": 7, "years": 0.1, "months": 1.6, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#27ae60", "cost_burden": 2450}], "total_weeks": 769, "max_weeks": 282, "min_weeks": 1, "avg_weeks": 69.9, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"critical": 3, "crisis": 3, "routine": 2, "concerning": 2, "urgent": 1}, "urgency_color": "#8b0000", "total_cost": 269150}, {"cluster_id": 2, "lon": -8.3355581, "lat": 52.6144391, "property_count": 3, "properties": [{"address": "CAPPAMORE", "reason": "Allocated", "weeks": 34, "years": 0.7, "months": 7.9, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#27ae60", "cost_burden": 11900}, {"address": "CAPPAMORE", "reason": "Major Refurbishment", "weeks": 39, "years": 0.8, "months": 9.0, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#e67e22", "cost_burden": 13650}, {"address": "CAPPAMORE", "reason": "Awaiting Minor Repairs", "weeks": 2, "years": 0.0, "months": 0.5, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#3498db", "cost_burden": 700}], "total_weeks": 75, "max_weeks": 39, "min_weeks": 2, "avg_weeks": 25.0, "worst_urgency": "urgent", "worst_priority": 3, "urgency_composition": {"urgent": 2, "routine": 1}, "urgency_color": "#e67e22", "total_cost": 26250}, {"cluster_id": 3, "lon": -8.571200700000002, "lat": 52.40064559999998, "property_count": 14, "properties": [{"address": "KILMALLOCK", "reason": "Major Refurbishment", "weeks": 110, "years": 2.1, "months": 25.4, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 38500}, {"address": "KILMALLOCK", "reason": "Allocated", "weeks": 126, "years": 2.4, "months": 29.1, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#27ae60", "cost_burden": 44100}, {"address": "KILMALLOCK", "reason": "Major Refurbishment", "weeks": 201, "years": 3.9, "months": 46.4, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 70350}, {"address": "KILMALLOCK", "reason": "Section 183", "weeks": 410, "years": 7.9, "months": 94.7, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 143500}, {"address": "KILMALLOCK", "reason": "For Demolition", "weeks": 65, "years": 1.2, "months": 15.0, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#8e44ad", "cost_burden": 22750}, {"address": "KILMALLOCK", "reason": "Major Refurbishment", "weeks": 78, "years": 1.5, "months": 18.0, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 27300}, {"address": "KILMALLOCK", "reason": "Major Refurbishment", "weeks": 85, "years": 1.6, "months": 19.6, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 29750}, {"address": "KILMALLOCK", "reason": "To Be Allocated", "weeks": 40, "years": 0.8, "months": 9.2, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#f39c12", "cost_burden": 14000}, {"address": "KILMALLOCK", "reason": "To Be Allocated", "weeks": 44, "years": 0.8, "months": 10.2, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#f39c12", "cost_burden": 15400}, {"address": "KILMALLOCK", "reason": "Awaiting Minor Repairs", "weeks": 11, "years": 0.2, "months": 2.5, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 3850}, {"address": "KILMALLOCK", "reason": "Major Refurbishment", "weeks": 20, "years": 0.4, "months": 4.6, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#e67e22", "cost_burden": 7000}, {"address": "KILMALLOCK", "reason": "Major Refurbishment", "weeks": 20, "years": 0.4, "months": 4.6, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#e67e22", "cost_burden": 7000}, {"address": "KILMALLOCK", "reason": "Major Refurbishment", "weeks": 20, "years": 0.4, "months": 4.6, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#e67e22", "cost_burden": 7000}, {"address": "KILMALLOCK", "reason": "Awaiting Minor Repairs", "weeks": 2, "years": 0.0, "months": 0.5, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#3498db", "cost_burden": 700}], "total_weeks": 1232, "max_weeks": 410, "min_weeks": 2, "avg_weeks": 88.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"concerning": 4, "crisis": 4, "critical": 3, "urgent": 2, "routine": 1}, "urgency_color": "#8b0000", "total_cost": 431200}, {"cluster_id": 4, "lon": -8.8595334, "lat": 52.648748, "property_count": 8, "properties": [{"address": "PALLASKENRY", "reason": "Allocated", "weeks": 3, "years": 0.1, "months": 0.7, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#27ae60", "cost_burden": 1050}, {"address": "PALLASKENRY", "reason": "Allocated", "weeks": 3, "years": 0.1, "months": 0.7, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#27ae60", "cost_burden": 1050}, {"address": "PALLASKENRY", "reason": "Allocated", "weeks": 3, "years": 0.1, "months": 0.7, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#27ae60", "cost_burden": 1050}, {"address": "PALLASKENRY", "reason": "Allocated", "weeks": 3, "years": 0.1, "months": 0.7, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#27ae60", "cost_burden": 1050}, {"address": "PALLASKENRY", "reason": "Allocated", "weeks": 3, "years": 0.1, "months": 0.7, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#27ae60", "cost_burden": 1050}, {"address": "PALLASKENRY", "reason": "Allocated", "weeks": 3, "years": 0.1, "months": 0.7, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#27ae60", "cost_burden": 1050}, {"address": "PALLASKENRY", "reason": "Allocated", "weeks": 3, "years": 0.1, "months": 0.7, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#27ae60", "cost_burden": 1050}, {"address": "PALLASKENRY", "reason": "Allocated", "weeks": 3, "years": 0.1, "months": 0.7, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#27ae60", "cost_burden": 1050}], "total_weeks": 24, "max_weeks": 3, "min_weeks": 3, "avg_weeks": 3.0, "worst_urgency": "routine", "worst_priority": 1, "urgency_composition": {"routine": 8}, "urgency_color": "#bdc3c7", "total_cost": 8400}, {"cluster_id": 5, "lon": -8.4724306, "lat": 52.3592022, "property_count": 4, "properties": [{"address": "KILFINANE", "reason": "Awaiting Minor Repairs", "weeks": 29, "years": 0.6, "months": 6.7, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 10150}, {"address": "KILFINANE", "reason": "Major Refurbishment", "weeks": 40, "years": 0.8, "months": 9.2, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#e67e22", "cost_burden": 14000}, {"address": "KILFINANE", "reason": "Allocated", "weeks": 43, "years": 0.8, "months": 9.9, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#27ae60", "cost_burden": 15050}, {"address": "KILFINANE", "reason": "Awaiting Minor Repairs", "weeks": 4, "years": 0.1, "months": 0.9, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#3498db", "cost_burden": 1400}], "total_weeks": 116, "max_weeks": 43, "min_weeks": 4, "avg_weeks": 29.0, "worst_urgency": "urgent", "worst_priority": 3, "urgency_composition": {"urgent": 3, "routine": 1}, "urgency_color": "#e67e22", "total_cost": 40600}, {"cluster_id": 6, "lon": -8.6346343, "lat": 52.6493772, "property_count": 6, "properties": [{"address": "ROSBRIEN", "reason": "Awaiting Minor Repairs", "weeks": 105, "years": 2.0, "months": 24.2, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#3498db", "cost_burden": 36750}, {"address": "ROSBRIEN", "reason": "On-hold", "weeks": 269, "years": 5.2, "months": 62.1, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#7f8c8d", "cost_burden": 94150}, {"address": "ROSBRIEN", "reason": "Allocated", "weeks": 35, "years": 0.7, "months": 8.1, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#27ae60", "cost_burden": 12250}, {"address": "ROSBRIEN", "reason": "Awaiting Minor Repairs", "weeks": 16, "years": 0.3, "months": 3.7, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 5600}, {"address": "ROSBRIEN", "reason": "Major Refurbishment", "weeks": 20, "years": 0.4, "months": 4.6, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#e67e22", "cost_burden": 7000}, {"address": "ROSBRIEN", "reason": "Awaiting Minor Repairs", "weeks": 4, "years": 0.1, "months": 0.9, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#3498db", "cost_burden": 1400}], "total_weeks": 449, "max_weeks": 269, "min_weeks": 4, "avg_weeks": 74.8, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"concerning": 2, "crisis": 2, "routine": 1, "urgent": 1}, "urgency_color": "#8b0000", "total_cost": 157150}, {"cluster_id": 7, "lon": -8.863349, "lat": 52.4737994, "property_count": 2, "properties": [{"address": "BALLINGARRY", "reason": "Major Refurbishment", "weeks": 357, "years": 6.9, "months": 82.4, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 124950}, {"address": "BALLINGARRY", "reason": "Awaiting Minor Repairs", "weeks": 4, "years": 0.1, "months": 0.9, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#3498db", "cost_burden": 1400}], "total_weeks": 361, "max_weeks": 357, "min_weeks": 4, "avg_weeks": 180.5, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"routine": 1, "crisis": 1}, "urgency_color": "#8b0000", "total_cost": 126350}, {"cluster_id": 8, "lon": -8.621724099999998, "lat": 52.66454910000001, "property_count": 13, "properties": [{"address": "WATERGATE", "reason": "Allocated", "weeks": 106, "years": 2.0, "months": 24.5, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#27ae60", "cost_burden": 37100}, {"address": "WATERGATE", "reason": "Awaiting Minor Repairs", "weeks": 141, "years": 2.7, "months": 32.6, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#3498db", "cost_burden": 49350}, {"address": "WATERGATE", "reason": "Awaiting Minor Repairs", "weeks": 151, "years": 2.9, "months": 34.9, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#3498db", "cost_burden": 52850}, {"address": "WATERGATE", "reason": "Allocated", "weeks": 155, "years": 3.0, "months": 35.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#27ae60", "cost_burden": 54250}, {"address": "WATERGATE", "reason": "Major Refurbishment", "weeks": 55, "years": 1.1, "months": 12.7, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 19250}, {"address": "WATERGATE", "reason": "Allocated", "weeks": 68, "years": 1.3, "months": 15.7, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#27ae60", "cost_burden": 23800}, {"address": "WATERGATE", "reason": "Awaiting Minor Repairs", "weeks": 78, "years": 1.5, "months": 18.0, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#3498db", "cost_burden": 27300}, {"address": "WATERGATE", "reason": "To Be Allocated", "weeks": 85, "years": 1.6, "months": 19.6, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#f39c12", "cost_burden": 29750}, {"address": "WATERGATE", "reason": "Major Refurbishment", "weeks": 51, "years": 1.0, "months": 11.8, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#e67e22", "cost_burden": 17850}, {"address": "WATERGATE", "reason": "Awaiting Minor Repairs", "weeks": 16, "years": 0.3, "months": 3.7, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 5600}, {"address": "WATERGATE", "reason": "Awaiting Minor Repairs", "weeks": 23, "years": 0.4, "months": 5.3, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 8050}, {"address": "WATERGATE", "reason": "Awaiting Minor Repairs", "weeks": 24, "years": 0.5, "months": 5.5, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 8400}, {"address": "WATERGATE", "reason": "Awaiting Minor Repairs", "weeks": 5, "years": 0.1, "months": 1.2, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#3498db", "cost_burden": 1750}], "total_weeks": 958, "max_weeks": 155, "min_weeks": 5, "avg_weeks": 73.7, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"critical": 4, "crisis": 4, "concerning": 3, "routine": 1, "urgent": 1}, "urgency_color": "#8b0000", "total_cost": 335300}, {"cluster_id": 9, "lon": -9.0593648, "lat": 52.4521626, "property_count": 2, "properties": [{"address": "BISHOP ST", "reason": "Major Refurbishment", "weeks": 65, "years": 1.2, "months": 15.0, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 22750}, {"address": "BISHOP ST", "reason": "Awaiting Minor Repairs", "weeks": 6, "years": 0.1, "months": 1.4, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#3498db", "cost_burden": 2100}], "total_weeks": 71, "max_weeks": 65, "min_weeks": 6, "avg_weeks": 35.5, "worst_urgency": "critical", "worst_priority": 4, "urgency_composition": {"routine": 1, "critical": 1}, "urgency_color": "#e74c3c", "total_cost": 24850}, {"cluster_id": 10, "lon": -8.6332105, "lat": 52.6754066, "property_count": 4, "properties": [{"address": "KILEELY", "reason": "Allocated", "weeks": 48, "years": 0.9, "months": 11.1, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#27ae60", "cost_burden": 16800}, {"address": "KILEELY", "reason": "To Be Allocated", "weeks": 18, "years": 0.3, "months": 4.2, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#f39c12", "cost_burden": 6300}, {"address": "KILEELY", "reason": "Major Refurbishment", "weeks": 6, "years": 0.1, "months": 1.4, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#e67e22", "cost_burden": 2100}, {"address": "KILEELY", "reason": "Major Refurbishment", "weeks": 6, "years": 0.1, "months": 1.4, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#e67e22", "cost_burden": 2100}], "total_weeks": 78, "max_weeks": 48, "min_weeks": 6, "avg_weeks": 19.5, "worst_urgency": "urgent", "worst_priority": 3, "urgency_composition": {"routine": 2, "concerning": 1, "urgent": 1}, "urgency_color": "#e67e22", "total_cost": 27300}, {"cluster_id": 11, "lon": -8.6176058, "lat": 52.6548184, "property_count": 2, "properties": [{"address": "ROXBORO ROAD", "reason": "Major Refurbishment", "weeks": 42, "years": 0.8, "months": 9.7, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#e67e22", "cost_burden": 14700}, {"address": "ROXBORO ROAD", "reason": "Major Refurbishment", "weeks": 6, "years": 0.1, "months": 1.4, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#e67e22", "cost_burden": 2100}], "total_weeks": 48, "max_weeks": 42, "min_weeks": 6, "avg_weeks": 24.0, "worst_urgency": "urgent", "worst_priority": 3, "urgency_composition": {"routine": 1, "urgent": 1}, "urgency_color": "#e67e22", "total_cost": 16800}, {"cluster_id": 12, "lon": -8.3995896, "lat": 52.6494667, "property_count": 2, "properties": [{"address": "MURROE", "reason": "Major Refurbishment", "weeks": 80, "years": 1.5, "months": 18.5, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 28000}, {"address": "MURROE", "reason": "Major Refurbishment", "weeks": 6, "years": 0.1, "months": 1.4, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#e67e22", "cost_burden": 2100}], "total_weeks": 86, "max_weeks": 80, "min_weeks": 6, "avg_weeks": 43.0, "worst_urgency": "critical", "worst_priority": 4, "urgency_composition": {"routine": 1, "critical": 1}, "urgency_color": "#e74c3c", "total_cost": 30100}, {"cluster_id": 13, "lon": -8.5323101, "lat": 52.6967341, "property_count": 16, "properties": [{"address": "PROSPECT", "reason": "Major Refurbishment", "weeks": 151, "years": 2.9, "months": 34.9, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 52850}, {"address": "PROSPECT", "reason": "Major Refurbishment", "weeks": 154, "years": 3.0, "months": 35.6, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 53900}, {"address": "PROSPECT", "reason": "Major Refurbishment", "weeks": 233, "years": 4.5, "months": 53.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 81550}, {"address": "PROSPECT", "reason": "Major Refurbishment", "weeks": 233, "years": 4.5, "months": 53.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 81550}, {"address": "PROSPECT", "reason": "Major Refurbishment", "weeks": 233, "years": 4.5, "months": 53.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 81550}, {"address": "PROSPECT", "reason": "Major Refurbishment", "weeks": 289, "years": 5.6, "months": 66.7, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 101150}, {"address": "PROSPECT", "reason": "Major Refurbishment", "weeks": 299, "years": 5.8, "months": 69.1, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 104650}, {"address": "PROSPECT", "reason": "Section 183", "weeks": 546, "years": 10.5, "months": 126.1, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 191100}, {"address": "PROSPECT", "reason": "Major Refurbishment", "weeks": 656, "years": 12.6, "months": 151.5, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 229600}, {"address": "PROSPECT", "reason": "Major Refurbishment", "weeks": 68, "years": 1.3, "months": 15.7, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 23800}, {"address": "PROSPECT", "reason": "Major Refurbishment", "weeks": 42, "years": 0.8, "months": 9.7, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#e67e22", "cost_burden": 14700}, {"address": "PROSPECT", "reason": "Awaiting Minor Repairs", "weeks": 43, "years": 0.8, "months": 9.9, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 15050}, {"address": "PROSPECT", "reason": "Major Refurbishment", "weeks": 13, "years": 0.2, "months": 3.0, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#e67e22", "cost_burden": 4550}, {"address": "PROSPECT", "reason": "Major Refurbishment", "weeks": 13, "years": 0.2, "months": 3.0, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#e67e22", "cost_burden": 4550}, {"address": "PROSPECT", "reason": "Awaiting Minor Repairs", "weeks": 20, "years": 0.4, "months": 4.6, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 7000}, {"address": "PROSPECT", "reason": "Major Refurbishment", "weeks": 6, "years": 0.1, "months": 1.4, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#e67e22", "cost_burden": 2100}], "total_weeks": 2999, "max_weeks": 656, "min_weeks": 6, "avg_weeks": 187.4, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 9, "concerning": 3, "urgent": 2, "routine": 1, "critical": 1}, "urgency_color": "#8b0000", "total_cost": 1049650}, {"cluster_id": 14, "lon": -8.6187, "lat": 52.6616771, "property_count": 2, "properties": [{"address": "CATHEDRAL PLACE", "reason": "Major Refurbishment", "weeks": 6, "years": 0.1, "months": 1.4, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#e67e22", "cost_burden": 2100}, {"address": "CATHEDRAL PLACE", "reason": "Major Refurbishment", "weeks": 6, "years": 0.1, "months": 1.4, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#e67e22", "cost_burden": 2100}], "total_weeks": 12, "max_weeks": 6, "min_weeks": 6, "avg_weeks": 6.0, "worst_urgency": "routine", "worst_priority": 1, "urgency_composition": {"routine": 2}, "urgency_color": "#bdc3c7", "total_cost": 4200}, {"cluster_id": 15, "lon": -8.6157821, "lat": 52.6619083, "property_count": 9, "properties": [{"address": "GARRYOWEN", "reason": "Allocated", "weeks": 129, "years": 2.5, "months": 29.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#27ae60", "cost_burden": 45150}, {"address": "GARRYOWEN", "reason": "Major Refurbishment", "weeks": 335, "years": 6.4, "months": 77.4, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 117250}, {"address": "GARRYOWEN", "reason": "Major Refurbishment", "weeks": 57, "years": 1.1, "months": 13.2, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 19950}, {"address": "GARRYOWEN", "reason": "On-hold", "weeks": 41, "years": 0.8, "months": 9.5, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#7f8c8d", "cost_burden": 14350}, {"address": "GARRYOWEN", "reason": "Allocated", "weeks": 9, "years": 0.2, "months": 2.1, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#27ae60", "cost_burden": 3150}, {"address": "GARRYOWEN", "reason": "Major Refurbishment", "weeks": 14, "years": 0.3, "months": 3.2, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#e67e22", "cost_burden": 4900}, {"address": "GARRYOWEN", "reason": "Awaiting Minor Repairs", "weeks": 26, "years": 0.5, "months": 6.0, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 9100}, {"address": "GARRYOWEN", "reason": "Major Refurbishment", "weeks": 6, "years": 0.1, "months": 1.4, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#e67e22", "cost_burden": 2100}, {"address": "GARRYOWEN", "reason": "Major Refurbishment", "weeks": 6, "years": 0.1, "months": 1.4, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#e67e22", "cost_burden": 2100}], "total_weeks": 623, "max_weeks": 335, "min_weeks": 6, "avg_weeks": 69.2, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"concerning": 3, "routine": 2, "crisis": 2, "urgent": 1, "critical": 1}, "urgency_color": "#8b0000", "total_cost": 218050}, {"cluster_id": 16, "lon": -8.6356636, "lat": 52.6588433, "property_count": 1, "properties": [{"address": "O CURRY STREET", "reason": "Major Refurbishment", "weeks": 6, "years": 0.1, "months": 1.4, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#e67e22", "cost_burden": 2100}], "total_weeks": 6, "max_weeks": 6, "min_weeks": 6, "avg_weeks": 6.0, "worst_urgency": "routine", "worst_priority": 1, "urgency_composition": {"routine": 1}, "urgency_color": "#bdc3c7", "total_cost": 2100}, {"cluster_id": 17, "lon": -8.5712428, "lat": 52.6654318, "property_count": 4, "properties": [{"address": "CASTLETROY", "reason": "Allocated", "weeks": 10, "years": 0.2, "months": 2.3, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#27ae60", "cost_burden": 3500}, {"address": "CASTLETROY", "reason": "Awaiting Minor Repairs", "weeks": 16, "years": 0.3, "months": 3.7, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 5600}, {"address": "CASTLETROY", "reason": "Allocated", "weeks": 21, "years": 0.4, "months": 4.8, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#27ae60", "cost_burden": 7350}, {"address": "CASTLETROY", "reason": "To Be Allocated", "weeks": 6, "years": 0.1, "months": 1.4, "urgency_tier": "routine", "urgency_priority": 1, "urgency_color": "#bdc3c7", "reason_color": "#f39c12", "cost_burden": 2100}], "total_weeks": 53, "max_weeks": 21, "min_weeks": 6, "avg_weeks": 13.2, "worst_urgency": "concerning", "worst_priority": 2, "urgency_composition": {"concerning": 3, "routine": 1}, "urgency_color": "#f1c40f", "total_cost": 18550}, {"cluster_id": 18, "lon": -8.471989, "lat": 52.59356970000001, "property_count": 3, "properties": [{"address": "CAHERCONLISH", "reason": "Major Refurbishment", "weeks": 63, "years": 1.2, "months": 14.5, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 22050}, {"address": "CAHERCONLISH", "reason": "Awaiting Minor Repairs", "weeks": 35, "years": 0.7, "months": 8.1, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 12250}, {"address": "CAHERCONLISH", "reason": "Awaiting Minor Repairs", "weeks": 9, "years": 0.2, "months": 2.1, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 3150}], "total_weeks": 107, "max_weeks": 63, "min_weeks": 9, "avg_weeks": 35.7, "worst_urgency": "critical", "worst_priority": 4, "urgency_composition": {"concerning": 1, "urgent": 1, "critical": 1}, "urgency_color": "#e74c3c", "total_cost": 37450}, {"cluster_id": 19, "lon": -8.4107217, "lat": 52.4371625, "property_count": 3, "properties": [{"address": "KNOCKLONG", "reason": "Major Refurbishment", "weeks": 74, "years": 1.4, "months": 17.1, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 25900}, {"address": "KNOCKLONG", "reason": "Awaiting Minor Repairs", "weeks": 9, "years": 0.2, "months": 2.1, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 3150}, {"address": "KNOCKLONG", "reason": "Allocated", "weeks": 19, "years": 0.4, "months": 4.4, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#27ae60", "cost_burden": 6650}], "total_weeks": 102, "max_weeks": 74, "min_weeks": 9, "avg_weeks": 34.0, "worst_urgency": "critical", "worst_priority": 4, "urgency_composition": {"concerning": 2, "critical": 1}, "urgency_color": "#e74c3c", "total_cost": 35700}, {"cluster_id": 20, "lon": -9.301549, "lat": 52.3847629, "property_count": 4, "properties": [{"address": "ABBEYFEALE", "reason": "On-hold", "weeks": 363, "years": 7.0, "months": 83.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#7f8c8d", "cost_burden": 127050}, {"address": "ABBEYFEALE", "reason": "Major Refurbishment", "weeks": 55, "years": 1.1, "months": 12.7, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 19250}, {"address": "ABBEYFEALE", "reason": "Allocated", "weeks": 88, "years": 1.7, "months": 20.3, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#27ae60", "cost_burden": 30800}, {"address": "ABBEYFEALE", "reason": "Awaiting Minor Repairs", "weeks": 10, "years": 0.2, "months": 2.3, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 3500}], "total_weeks": 516, "max_weeks": 363, "min_weeks": 10, "avg_weeks": 129.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"critical": 2, "concerning": 1, "crisis": 1}, "urgency_color": "#8b0000", "total_cost": 180600}, {"cluster_id": 21, "lon": -8.6048641, "lat": 52.6479965, "property_count": 9, "properties": [{"address": "O MALLEY PK", "reason": "Awaiting Minor Repairs", "weeks": 108, "years": 2.1, "months": 24.9, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#3498db", "cost_burden": 37800}, {"address": "O MALLEY PARK", "reason": "Section 183", "weeks": 389, "years": 7.5, "months": 89.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 136150}, {"address": "O MALLEY PARK", "reason": "Section 183", "weeks": 389, "years": 7.5, "months": 89.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 136150}, {"address": "O MALLEY PK", "reason": "For Demolition", "weeks": 53, "years": 1.0, "months": 12.2, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#8e44ad", "cost_burden": 18550}, {"address": "O MALLEY PK", "reason": "Awaiting Minor Repairs", "weeks": 61, "years": 1.2, "months": 14.1, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#3498db", "cost_burden": 21350}, {"address": "O MALLEY PK", "reason": "Awaiting Minor Repairs", "weeks": 35, "years": 0.7, "months": 8.1, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 12250}, {"address": "O MALLEY PK", "reason": "Awaiting Minor Repairs", "weeks": 39, "years": 0.8, "months": 9.0, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 13650}, {"address": "O MALLEY PK", "reason": "Awaiting Minor Repairs", "weeks": 10, "years": 0.2, "months": 2.3, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 3500}, {"address": "O MALLEY PARK", "reason": "For Demolition", "weeks": 26, "years": 0.5, "months": 6.0, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#8e44ad", "cost_burden": 9100}], "total_weeks": 1110, "max_weeks": 389, "min_weeks": 10, "avg_weeks": 123.3, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 3, "concerning": 2, "urgent": 2, "critical": 2}, "urgency_color": "#8b0000", "total_cost": 388500}, {"cluster_id": 22, "lon": -8.6422543, "lat": 52.6766288, "property_count": 5, "properties": [{"address": "BALLYNANTY BEG", "reason": "To Be Allocated", "weeks": 46, "years": 0.9, "months": 10.6, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#f39c12", "cost_burden": 16100}, {"address": "BALLYNANTY BEG", "reason": "For Demolition", "weeks": 48, "years": 0.9, "months": 11.1, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#8e44ad", "cost_burden": 16800}, {"address": "BALLYNANTY BEG", "reason": "Major Refurbishment", "weeks": 49, "years": 0.9, "months": 11.3, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#e67e22", "cost_burden": 17150}, {"address": "BALLYNANTY BEG", "reason": "Awaiting Minor Repairs", "weeks": 11, "years": 0.2, "months": 2.5, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 3850}, {"address": "BALLYNANTY BEG", "reason": "Awaiting Minor Repairs", "weeks": 11, "years": 0.2, "months": 2.5, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 3850}], "total_weeks": 165, "max_weeks": 49, "min_weeks": 11, "avg_weeks": 33.0, "worst_urgency": "urgent", "worst_priority": 3, "urgency_composition": {"urgent": 3, "concerning": 2}, "urgency_color": "#e67e22", "total_cost": 57750}, {"cluster_id": 23, "lon": -8.6231475, "lat": 52.6641901, "property_count": 1, "properties": [{"address": "ELLEN ST", "reason": "Awaiting Minor Repairs", "weeks": 12, "years": 0.2, "months": 2.8, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 4200}], "total_weeks": 12, "max_weeks": 12, "min_weeks": 12, "avg_weeks": 12.0, "worst_urgency": "concerning", "worst_priority": 2, "urgency_composition": {"concerning": 1}, "urgency_color": "#f1c40f", "total_cost": 4200}, {"cluster_id": 24, "lon": -9.1109507, "lat": 52.6111406, "property_count": 5, "properties": [{"address": "FOYNES", "reason": "Major Refurbishment", "weeks": 144, "years": 2.8, "months": 33.3, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 50400}, {"address": "FOYNES", "reason": "On-hold", "weeks": 172, "years": 3.3, "months": 39.7, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#7f8c8d", "cost_burden": 60200}, {"address": "FOYNES", "reason": "Major Refurbishment", "weeks": 65, "years": 1.2, "months": 15.0, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 22750}, {"address": "FOYNES", "reason": "Awaiting Minor Repairs", "weeks": 12, "years": 0.2, "months": 2.8, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 4200}, {"address": "FOYNES", "reason": "Major Refurbishment", "weeks": 21, "years": 0.4, "months": 4.8, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#e67e22", "cost_burden": 7350}], "total_weeks": 414, "max_weeks": 172, "min_weeks": 12, "avg_weeks": 82.8, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"concerning": 2, "crisis": 2, "critical": 1}, "urgency_color": "#8b0000", "total_cost": 144900}, {"cluster_id": 25, "lon": -9.1745261, "lat": 52.3974632, "property_count": 1, "properties": [{"address": "TEMPLEGLANTINE", "reason": "Awaiting Minor Repairs", "weeks": 13, "years": 0.2, "months": 3.0, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 4550}], "total_weeks": 13, "max_weeks": 13, "min_weeks": 13, "avg_weeks": 13.0, "worst_urgency": "concerning", "worst_priority": 2, "urgency_composition": {"concerning": 1}, "urgency_color": "#f1c40f", "total_cost": 4550}, {"cluster_id": 26, "lon": -8.6605818, "lat": 52.4243387, "property_count": 3, "properties": [{"address": "BRUREE", "reason": "Allocated", "weeks": 459, "years": 8.8, "months": 106.0, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#27ae60", "cost_burden": 160650}, {"address": "BRUREE", "reason": "Major Refurbishment", "weeks": 39, "years": 0.8, "months": 9.0, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#e67e22", "cost_burden": 13650}, {"address": "BRUREE", "reason": "Awaiting Minor Repairs", "weeks": 15, "years": 0.3, "months": 3.5, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 5250}], "total_weeks": 513, "max_weeks": 459, "min_weeks": 15, "avg_weeks": 171.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"concerning": 1, "urgent": 1, "crisis": 1}, "urgency_color": "#8b0000", "total_cost": 179550}, {"cluster_id": 27, "lon": -8.657288, "lat": 52.7032427, "property_count": 2, "properties": [{"address": "MUNCHINS ST", "reason": "For Demolition", "weeks": 39, "years": 0.8, "months": 9.0, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#8e44ad", "cost_burden": 13650}, {"address": "MUNCHINS ST", "reason": "For Demolition", "weeks": 17, "years": 0.3, "months": 3.9, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#8e44ad", "cost_burden": 5950}], "total_weeks": 56, "max_weeks": 39, "min_weeks": 17, "avg_weeks": 28.0, "worst_urgency": "urgent", "worst_priority": 3, "urgency_composition": {"concerning": 1, "urgent": 1}, "urgency_color": "#e67e22", "total_cost": 19600}, {"cluster_id": 28, "lon": -8.651196199999998, "lat": 52.6811361, "property_count": 26, "properties": [{"address": "MOYROSS", "reason": "For Demolition", "weeks": 123, "years": 2.4, "months": 28.4, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#8e44ad", "cost_burden": 43050}, {"address": "MOYROSS", "reason": "Awaiting Minor Repairs", "weeks": 130, "years": 2.5, "months": 30.0, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#3498db", "cost_burden": 45500}, {"address": "MOYROSS", "reason": "Section 183", "weeks": 140, "years": 2.7, "months": 32.3, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 49000}, {"address": "MOYROSS", "reason": "Section 183", "weeks": 140, "years": 2.7, "months": 32.3, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 49000}, {"address": "MOYROSS", "reason": "For Demolition", "weeks": 154, "years": 3.0, "months": 35.6, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#8e44ad", "cost_burden": 53900}, {"address": "MOYROSS", "reason": "Awaiting Minor Repairs", "weeks": 179, "years": 3.4, "months": 41.3, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#3498db", "cost_burden": 62650}, {"address": "MOYROSS", "reason": "To Be Allocated", "weeks": 218, "years": 4.2, "months": 50.3, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#f39c12", "cost_burden": 76300}, {"address": "MOYROSS", "reason": "Awaiting Minor Repairs", "weeks": 231, "years": 4.4, "months": 53.3, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#3498db", "cost_burden": 80850}, {"address": "MOYROSS", "reason": "For Demolition", "weeks": 362, "years": 7.0, "months": 83.6, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#8e44ad", "cost_burden": 126700}, {"address": "MOYROSS", "reason": "For Demolition", "weeks": 621, "years": 11.9, "months": 143.4, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#8e44ad", "cost_burden": 217350}, {"address": "MOYROSS", "reason": "For Demolition", "weeks": 834, "years": 16.0, "months": 192.6, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#8e44ad", "cost_burden": 291900}, {"address": "MOYROSS", "reason": "For Demolition", "weeks": 61, "years": 1.2, "months": 14.1, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#8e44ad", "cost_burden": 21350}, {"address": "MOYROSS", "reason": "Awaiting Minor Repairs", "weeks": 70, "years": 1.3, "months": 16.2, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#3498db", "cost_burden": 24500}, {"address": "MOYROSS", "reason": "Section 183", "weeks": 77, "years": 1.5, "months": 17.8, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#c0392b", "cost_burden": 26950}, {"address": "MOYROSS", "reason": "Section 183", "weeks": 77, "years": 1.5, "months": 17.8, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#c0392b", "cost_burden": 26950}, {"address": "MOYROSS", "reason": "For Demolition", "weeks": 98, "years": 1.9, "months": 22.6, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#8e44ad", "cost_burden": 34300}, {"address": "MOYROSS", "reason": "Allocated", "weeks": 99, "years": 1.9, "months": 22.9, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#27ae60", "cost_burden": 34650}, {"address": "MOYROSS", "reason": "For Demolition", "weeks": 31, "years": 0.6, "months": 7.2, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#8e44ad", "cost_burden": 10850}, {"address": "MOYROSS", "reason": "Awaiting Minor Repairs", "weeks": 32, "years": 0.6, "months": 7.4, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 11200}, {"address": "MOYROSS", "reason": "Awaiting Minor Repairs", "weeks": 33, "years": 0.6, "months": 7.6, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 11550}, {"address": "MOYROSS", "reason": "Section 183", "weeks": 34, "years": 0.7, "months": 7.9, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#c0392b", "cost_burden": 11900}, {"address": "MOYROSS", "reason": "Awaiting Minor Repairs", "weeks": 35, "years": 0.7, "months": 8.1, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 12250}, {"address": "MOYROSS", "reason": "For Demolition", "weeks": 35, "years": 0.7, "months": 8.1, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#8e44ad", "cost_burden": 12250}, {"address": "MOYROSS", "reason": "For Demolition", "weeks": 35, "years": 0.7, "months": 8.1, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#8e44ad", "cost_burden": 12250}, {"address": "MOYROSS", "reason": "For Demolition", "weeks": 42, "years": 0.8, "months": 9.7, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#8e44ad", "cost_burden": 14700}, {"address": "MOYROSS", "reason": "Awaiting Minor Repairs", "weeks": 20, "years": 0.4, "months": 4.6, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 7000}], "total_weeks": 3911, "max_weeks": 834, "min_weeks": 20, "avg_weeks": 150.4, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 11, "urgent": 8, "critical": 6, "concerning": 1}, "urgency_color": "#8b0000", "total_cost": 1368850}, {"cluster_id": 29, "lon": -9.0630561, "lat": 52.49444400000001, "property_count": 3, "properties": [{"address": "ARDAGH", "reason": "On-hold", "weeks": 118, "years": 2.3, "months": 27.3, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#7f8c8d", "cost_burden": 41300}, {"address": "ARDAGH", "reason": "Major Refurbishment", "weeks": 20, "years": 0.4, "months": 4.6, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#e67e22", "cost_burden": 7000}, {"address": "ARDAGH", "reason": "Major Refurbishment", "weeks": 20, "years": 0.4, "months": 4.6, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#e67e22", "cost_burden": 7000}], "total_weeks": 158, "max_weeks": 118, "min_weeks": 20, "avg_weeks": 52.7, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"concerning": 2, "crisis": 1}, "urgency_color": "#8b0000", "total_cost": 55300}, {"cluster_id": 30, "lon": -8.2988597, "lat": 52.4014578, "property_count": 4, "properties": [{"address": "GALBALLY", "reason": "For Demolition", "weeks": 80, "years": 1.5, "months": 18.5, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#8e44ad", "cost_burden": 28000}, {"address": "GALBALLY", "reason": "To Be Allocated", "weeks": 27, "years": 0.5, "months": 6.2, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#f39c12", "cost_burden": 9450}, {"address": "GALBALLY", "reason": "Major Refurbishment", "weeks": 20, "years": 0.4, "months": 4.6, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#e67e22", "cost_burden": 7000}, {"address": "GALBALLY", "reason": "Major Refurbishment", "weeks": 20, "years": 0.4, "months": 4.6, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#e67e22", "cost_burden": 7000}], "total_weeks": 147, "max_weeks": 80, "min_weeks": 20, "avg_weeks": 36.8, "worst_urgency": "critical", "worst_priority": 4, "urgency_composition": {"concerning": 2, "urgent": 1, "critical": 1}, "urgency_color": "#e74c3c", "total_cost": 51450}, {"cluster_id": 31, "lon": -8.797929, "lat": 52.5681652, "property_count": 3, "properties": [{"address": "ADARE", "reason": "Allocated", "weeks": 54, "years": 1.0, "months": 12.5, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#27ae60", "cost_burden": 18900}, {"address": "ADARE", "reason": "Awaiting Minor Repairs", "weeks": 30, "years": 0.6, "months": 6.9, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 10500}, {"address": "ADARE", "reason": "Major Refurbishment", "weeks": 20, "years": 0.4, "months": 4.6, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#e67e22", "cost_burden": 7000}], "total_weeks": 104, "max_weeks": 54, "min_weeks": 20, "avg_weeks": 34.7, "worst_urgency": "critical", "worst_priority": 4, "urgency_composition": {"concerning": 1, "urgent": 1, "critical": 1}, "urgency_color": "#e74c3c", "total_cost": 36400}, {"cluster_id": 32, "lon": -8.5623941, "lat": 52.6517378, "property_count": 1, "properties": [{"address": "EVANWOOD", "reason": "Allocated", "weeks": 22, "years": 0.4, "months": 5.1, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#27ae60", "cost_burden": 7700}], "total_weeks": 22, "max_weeks": 22, "min_weeks": 22, "avg_weeks": 22.0, "worst_urgency": "concerning", "worst_priority": 2, "urgency_composition": {"concerning": 1}, "urgency_color": "#f1c40f", "total_cost": 7700}, {"cluster_id": 33, "lon": -8.2485219, "lat": 52.6043925, "property_count": 2, "properties": [{"address": "DOON", "reason": "To Be Allocated", "weeks": 33, "years": 0.6, "months": 7.6, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#f39c12", "cost_burden": 11550}, {"address": "DOON", "reason": "Awaiting Minor Repairs", "weeks": 23, "years": 0.4, "months": 5.3, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 8050}], "total_weeks": 56, "max_weeks": 33, "min_weeks": 23, "avg_weeks": 28.0, "worst_urgency": "urgent", "worst_priority": 3, "urgency_composition": {"concerning": 1, "urgent": 1}, "urgency_color": "#e67e22", "total_cost": 19600}, {"cluster_id": 34, "lon": -8.3379697, "lat": 52.5679529, "property_count": 2, "properties": [{"address": "PALLASGREEN", "reason": "Awaiting Minor Repairs", "weeks": 24, "years": 0.5, "months": 5.5, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 8400}, {"address": "PALLASGREEN", "reason": "Awaiting Minor Repairs", "weeks": 24, "years": 0.5, "months": 5.5, "urgency_tier": "concerning", "urgency_priority": 2, "urgency_color": "#f1c40f", "reason_color": "#3498db", "cost_burden": 8400}], "total_weeks": 48, "max_weeks": 24, "min_weeks": 24, "avg_weeks": 24.0, "worst_urgency": "concerning", "worst_priority": 2, "urgency_composition": {"concerning": 2}, "urgency_color": "#f1c40f", "total_cost": 16800}, {"cluster_id": 35, "lon": -8.626893, "lat": 52.6569322, "property_count": 2, "properties": [{"address": "LORD EDWARD STREET", "reason": "Section 183", "weeks": 706, "years": 13.6, "months": 163.0, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 247100}, {"address": "LORD EDWARD STREET", "reason": "To Be Allocated", "weeks": 27, "years": 0.5, "months": 6.2, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#f39c12", "cost_burden": 9450}], "total_weeks": 733, "max_weeks": 706, "min_weeks": 27, "avg_weeks": 366.5, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"urgent": 1, "crisis": 1}, "urgency_color": "#8b0000", "total_cost": 256550}, {"cluster_id": 36, "lon": -8.6216761, "lat": 52.6613918, "property_count": 1, "properties": [{"address": "UPPER WILLIAM STREET", "reason": "Allocated", "weeks": 30, "years": 0.6, "months": 6.9, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#27ae60", "cost_burden": 10500}], "total_weeks": 30, "max_weeks": 30, "min_weeks": 30, "avg_weeks": 30.0, "worst_urgency": "urgent", "worst_priority": 3, "urgency_composition": {"urgent": 1}, "urgency_color": "#e67e22", "total_cost": 10500}, {"cluster_id": 37, "lon": -9.2005545, "lat": 52.3217305, "property_count": 1, "properties": [{"address": "MOUNTCOLLINS", "reason": "Awaiting Minor Repairs", "weeks": 30, "years": 0.6, "months": 6.9, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 10500}], "total_weeks": 30, "max_weeks": 30, "min_weeks": 30, "avg_weeks": 30.0, "worst_urgency": "urgent", "worst_priority": 3, "urgency_composition": {"urgent": 1}, "urgency_color": "#e67e22", "total_cost": 10500}, {"cluster_id": 38, "lon": -8.6136138, "lat": 52.6577317, "property_count": 1, "properties": [{"address": "ST JOSEPH ST", "reason": "Awaiting Minor Repairs", "weeks": 36, "years": 0.7, "months": 8.3, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 12600}], "total_weeks": 36, "max_weeks": 36, "min_weeks": 36, "avg_weeks": 36.0, "worst_urgency": "urgent", "worst_priority": 3, "urgency_composition": {"urgent": 1}, "urgency_color": "#e67e22", "total_cost": 12600}, {"cluster_id": 39, "lon": -9.212905899999999, "lat": 52.438705199999994, "property_count": 12, "properties": [{"address": "CLASH", "reason": "Section 183", "weeks": 233, "years": 4.5, "months": 53.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 81550}, {"address": "CLASH", "reason": "Section 183", "weeks": 233, "years": 4.5, "months": 53.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 81550}, {"address": "CLASH", "reason": "Section 183", "weeks": 233, "years": 4.5, "months": 53.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 81550}, {"address": "CLASH", "reason": "Section 183", "weeks": 233, "years": 4.5, "months": 53.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 81550}, {"address": "CLASH", "reason": "Section 183", "weeks": 233, "years": 4.5, "months": 53.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 81550}, {"address": "CLASH", "reason": "Section 183", "weeks": 233, "years": 4.5, "months": 53.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 81550}, {"address": "CLASH", "reason": "Section 183", "weeks": 233, "years": 4.5, "months": 53.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 81550}, {"address": "CLASH", "reason": "Section 183", "weeks": 233, "years": 4.5, "months": 53.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 81550}, {"address": "CLASH", "reason": "Section 183", "weeks": 233, "years": 4.5, "months": 53.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 81550}, {"address": "CLASH", "reason": "Section 183", "weeks": 233, "years": 4.5, "months": 53.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 81550}, {"address": "CLASH", "reason": "Section 183", "weeks": 36, "years": 0.7, "months": 8.3, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#c0392b", "cost_burden": 12600}, {"address": "CLASH", "reason": "Section 183", "weeks": 36, "years": 0.7, "months": 8.3, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#c0392b", "cost_burden": 12600}], "total_weeks": 2402, "max_weeks": 233, "min_weeks": 36, "avg_weeks": 200.2, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 10, "urgent": 2}, "urgency_color": "#8b0000", "total_cost": 840700}, {"cluster_id": 40, "lon": -8.4979284, "lat": 52.7130568, "property_count": 1, "properties": [{"address": "CASTLECONNELL", "reason": "Allocated", "weeks": 39, "years": 0.8, "months": 9.0, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#27ae60", "cost_burden": 13650}], "total_weeks": 39, "max_weeks": 39, "min_weeks": 39, "avg_weeks": 39.0, "worst_urgency": "urgent", "worst_priority": 3, "urgency_composition": {"urgent": 1}, "urgency_color": "#e67e22", "total_cost": 13650}, {"cluster_id": 41, "lon": -8.263597, "lat": 52.5493971, "property_count": 2, "properties": [{"address": "OOLA", "reason": "Major Refurbishment", "weeks": 146, "years": 2.8, "months": 33.7, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 51100}, {"address": "OOLA", "reason": "Awaiting Minor Repairs", "weeks": 40, "years": 0.8, "months": 9.2, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 14000}], "total_weeks": 186, "max_weeks": 146, "min_weeks": 40, "avg_weeks": 93.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"urgent": 1, "crisis": 1}, "urgency_color": "#8b0000", "total_cost": 65100}, {"cluster_id": 42, "lon": -8.629379299999998, "lat": 52.670357200000005, "property_count": 6, "properties": [{"address": "THOMONDGATE", "reason": "Awaiting Minor Repairs", "weeks": 166, "years": 3.2, "months": 38.3, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#3498db", "cost_burden": 58100}, {"address": "THOMONDGATE", "reason": "Major Refurbishment", "weeks": 279, "years": 5.4, "months": 64.4, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 97650}, {"address": "THOMONDGATE", "reason": "For Demolition", "weeks": 379, "years": 7.3, "months": 87.5, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#8e44ad", "cost_burden": 132650}, {"address": "THOMONDGATE", "reason": "Allocated", "weeks": 68, "years": 1.3, "months": 15.7, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#27ae60", "cost_burden": 23800}, {"address": "THOMONDGATE", "reason": "Awaiting Minor Repairs", "weeks": 42, "years": 0.8, "months": 9.7, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 14700}, {"address": "THOMONDGATE", "reason": "To Be Allocated", "weeks": 43, "years": 0.8, "months": 9.9, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#f39c12", "cost_burden": 15050}], "total_weeks": 977, "max_weeks": 379, "min_weeks": 42, "avg_weeks": 162.8, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 3, "urgent": 2, "critical": 1}, "urgency_color": "#8b0000", "total_cost": 341950}, {"cluster_id": 43, "lon": -8.4223415, "lat": 52.4727891, "property_count": 2, "properties": [{"address": "HOSPITAL", "reason": "Awaiting Minor Repairs", "weeks": 42, "years": 0.8, "months": 9.7, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 14700}, {"address": "HOSPITAL", "reason": "Awaiting Minor Repairs", "weeks": 49, "years": 0.9, "months": 11.3, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 17150}], "total_weeks": 91, "max_weeks": 49, "min_weeks": 42, "avg_weeks": 45.5, "worst_urgency": "urgent", "worst_priority": 3, "urgency_composition": {"urgent": 2}, "urgency_color": "#e67e22", "total_cost": 31850}, {"cluster_id": 44, "lon": -8.6284233, "lat": 52.6673852, "property_count": 2, "properties": [{"address": "CLANCY STRAND", "reason": "Major Refurbishment", "weeks": 187, "years": 3.6, "months": 43.2, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 65450}, {"address": "CLANCY STRAND", "reason": "Major Refurbishment", "weeks": 44, "years": 0.8, "months": 10.2, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#e67e22", "cost_burden": 15400}], "total_weeks": 231, "max_weeks": 187, "min_weeks": 44, "avg_weeks": 115.5, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"urgent": 1, "crisis": 1}, "urgency_color": "#8b0000", "total_cost": 80850}, {"cluster_id": 45, "lon": -8.6682386, "lat": 52.663199, "property_count": 6, "properties": [{"address": "CLONMACKEN", "reason": "Section 183", "weeks": 45, "years": 0.9, "months": 10.4, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#c0392b", "cost_burden": 15750}, {"address": "CLONMACKEN", "reason": "Section 183", "weeks": 45, "years": 0.9, "months": 10.4, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#c0392b", "cost_burden": 15750}, {"address": "CLONMACKEN", "reason": "Section 183", "weeks": 45, "years": 0.9, "months": 10.4, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#c0392b", "cost_burden": 15750}, {"address": "CLONMACKEN", "reason": "Section 183", "weeks": 45, "years": 0.9, "months": 10.4, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#c0392b", "cost_burden": 15750}, {"address": "CLONMACKEN", "reason": "Section 183", "weeks": 45, "years": 0.9, "months": 10.4, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#c0392b", "cost_burden": 15750}, {"address": "CLONMACKEN", "reason": "Section 183", "weeks": 45, "years": 0.9, "months": 10.4, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#c0392b", "cost_burden": 15750}], "total_weeks": 270, "max_weeks": 45, "min_weeks": 45, "avg_weeks": 45.0, "worst_urgency": "urgent", "worst_priority": 3, "urgency_composition": {"urgent": 6}, "urgency_color": "#e67e22", "total_cost": 94500}, {"cluster_id": 46, "lon": -9.2890747, "lat": 52.4616631, "property_count": 3, "properties": [{"address": "ATHEA", "reason": "Section 183", "weeks": 87, "years": 1.7, "months": 20.1, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#c0392b", "cost_burden": 30450}, {"address": "ATHEA", "reason": "Awaiting Minor Repairs", "weeks": 48, "years": 0.9, "months": 11.1, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 16800}, {"address": "ATHEA", "reason": "Awaiting Minor Repairs", "weeks": 48, "years": 0.9, "months": 11.1, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 16800}], "total_weeks": 183, "max_weeks": 87, "min_weeks": 48, "avg_weeks": 61.0, "worst_urgency": "critical", "worst_priority": 4, "urgency_composition": {"urgent": 2, "critical": 1}, "urgency_color": "#e74c3c", "total_cost": 64050}, {"cluster_id": 47, "lon": -8.980185399999998, "lat": 52.59115280000001, "property_count": 6, "properties": [{"address": "ASKEATON", "reason": "Major Refurbishment", "weeks": 207, "years": 4.0, "months": 47.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 72450}, {"address": "ASKEATON", "reason": "Major Refurbishment", "weeks": 207, "years": 4.0, "months": 47.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 72450}, {"address": "ASKEATON", "reason": "Major Refurbishment", "weeks": 207, "years": 4.0, "months": 47.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 72450}, {"address": "ASKEATON", "reason": "Major Refurbishment", "weeks": 74, "years": 1.4, "months": 17.1, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 25900}, {"address": "ASKEATON", "reason": "Major Refurbishment", "weeks": 86, "years": 1.7, "months": 19.9, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 30100}, {"address": "ASKEATON", "reason": "Awaiting Minor Repairs", "weeks": 49, "years": 0.9, "months": 11.3, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 17150}], "total_weeks": 830, "max_weeks": 207, "min_weeks": 49, "avg_weeks": 138.3, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 3, "critical": 2, "urgent": 1}, "urgency_color": "#8b0000", "total_cost": 290500}, {"cluster_id": 48, "lon": -8.6713772, "lat": 52.6734725, "property_count": 1, "properties": [{"address": "ENNIS ROAD", "reason": "For Demolition", "weeks": 50, "years": 1.0, "months": 11.5, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#8e44ad", "cost_burden": 17500}], "total_weeks": 50, "max_weeks": 50, "min_weeks": 50, "avg_weeks": 50.0, "worst_urgency": "urgent", "worst_priority": 3, "urgency_composition": {"urgent": 1}, "urgency_color": "#e67e22", "total_cost": 17500}, {"cluster_id": 49, "lon": -8.6247461, "lat": 52.6630664, "property_count": 1, "properties": [{"address": "WILLIAM ST", "reason": "For Demolition", "weeks": 50, "years": 1.0, "months": 11.5, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#8e44ad", "cost_burden": 17500}], "total_weeks": 50, "max_weeks": 50, "min_weeks": 50, "avg_weeks": 50.0, "worst_urgency": "urgent", "worst_priority": 3, "urgency_composition": {"urgent": 1}, "urgency_color": "#e67e22", "total_cost": 17500}, {"cluster_id": 50, "lon": -8.6354721, "lat": 52.6531553, "property_count": 1, "properties": [{"address": "O CONNELL AVENUE", "reason": "Awaiting Minor Repairs", "weeks": 51, "years": 1.0, "months": 11.8, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 17850}], "total_weeks": 51, "max_weeks": 51, "min_weeks": 51, "avg_weeks": 51.0, "worst_urgency": "urgent", "worst_priority": 3, "urgency_composition": {"urgent": 1}, "urgency_color": "#e67e22", "total_cost": 17850}, {"cluster_id": 51, "lon": -8.6195369, "lat": 52.6476874, "property_count": 2, "properties": [{"address": "JOHN CAREW PARK", "reason": "Major Refurbishment", "weeks": 281, "years": 5.4, "months": 64.9, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 98350}, {"address": "JOHN CAREW PARK", "reason": "Awaiting Minor Repairs", "weeks": 51, "years": 1.0, "months": 11.8, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#3498db", "cost_burden": 17850}], "total_weeks": 332, "max_weeks": 281, "min_weeks": 51, "avg_weeks": 166.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"urgent": 1, "crisis": 1}, "urgency_color": "#8b0000", "total_cost": 116200}, {"cluster_id": 52, "lon": -8.6355078, "lat": 52.6463293, "property_count": 3, "properties": [{"address": "BALLINACURRA WESTON", "reason": "Major Refurbishment", "weeks": 184, "years": 3.5, "months": 42.5, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 64400}, {"address": "BALLINACURRA WESTON", "reason": "Major Refurbishment", "weeks": 272, "years": 5.2, "months": 62.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 95200}, {"address": "BALLINACURRA WESTON", "reason": "To Be Allocated", "weeks": 51, "years": 1.0, "months": 11.8, "urgency_tier": "urgent", "urgency_priority": 3, "urgency_color": "#e67e22", "reason_color": "#f39c12", "cost_burden": 17850}], "total_weeks": 507, "max_weeks": 272, "min_weeks": 51, "avg_weeks": 169.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 2, "urgent": 1}, "urgency_color": "#8b0000", "total_cost": 177450}, {"cluster_id": 53, "lon": -9.2967502, "lat": 52.5650961, "property_count": 1, "properties": [{"address": "GLIN", "reason": "Major Refurbishment", "weeks": 55, "years": 1.1, "months": 12.7, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 19250}], "total_weeks": 55, "max_weeks": 55, "min_weeks": 55, "avg_weeks": 55.0, "worst_urgency": "critical", "worst_priority": 4, "urgency_composition": {"critical": 1}, "urgency_color": "#e74c3c", "total_cost": 19250}, {"cluster_id": 54, "lon": -8.6129964, "lat": 52.6622582, "property_count": 1, "properties": [{"address": "KILLALEE", "reason": "Awaiting Minor Repairs", "weeks": 59, "years": 1.1, "months": 13.6, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#3498db", "cost_burden": 20650}], "total_weeks": 59, "max_weeks": 59, "min_weeks": 59, "avg_weeks": 59.0, "worst_urgency": "critical", "worst_priority": 4, "urgency_composition": {"critical": 1}, "urgency_color": "#e74c3c", "total_cost": 20650}, {"cluster_id": 55, "lon": -8.3473484, "lat": 52.3714932, "property_count": 1, "properties": [{"address": "BALLYLANDERS", "reason": "Major Refurbishment", "weeks": 61, "years": 1.2, "months": 14.1, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 21350}], "total_weeks": 61, "max_weeks": 61, "min_weeks": 61, "avg_weeks": 61.0, "worst_urgency": "critical", "worst_priority": 4, "urgency_composition": {"critical": 1}, "urgency_color": "#e74c3c", "total_cost": 21350}, {"cluster_id": 56, "lon": -8.6215882, "lat": 52.6678953, "property_count": 1, "properties": [{"address": "MEAT MARKET LANE", "reason": "Section 183", "weeks": 61, "years": 1.2, "months": 14.1, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#c0392b", "cost_burden": 21350}], "total_weeks": 61, "max_weeks": 61, "min_weeks": 61, "avg_weeks": 61.0, "worst_urgency": "critical", "worst_priority": 4, "urgency_composition": {"critical": 1}, "urgency_color": "#e74c3c", "total_cost": 21350}, {"cluster_id": 57, "lon": -8.6184528, "lat": 52.6635657, "property_count": 1, "properties": [{"address": "CHURCH STREET", "reason": "For Demolition", "weeks": 62, "years": 1.2, "months": 14.3, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#8e44ad", "cost_burden": 21700}], "total_weeks": 62, "max_weeks": 62, "min_weeks": 62, "avg_weeks": 62.0, "worst_urgency": "critical", "worst_priority": 4, "urgency_composition": {"critical": 1}, "urgency_color": "#e74c3c", "total_cost": 21700}, {"cluster_id": 58, "lon": -8.5983425, "lat": 52.6537918, "property_count": 1, "properties": [{"address": "BALLYSIMON ROAD", "reason": "Major Refurbishment", "weeks": 63, "years": 1.2, "months": 14.5, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 22050}], "total_weeks": 63, "max_weeks": 63, "min_weeks": 63, "avg_weeks": 63.0, "worst_urgency": "critical", "worst_priority": 4, "urgency_composition": {"critical": 1}, "urgency_color": "#e74c3c", "total_cost": 22050}, {"cluster_id": 59, "lon": -8.6465495, "lat": 52.6695808, "property_count": 1, "properties": [{"address": "CAHERDAVIN", "reason": "Major Refurbishment", "weeks": 66, "years": 1.3, "months": 15.2, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 23100}], "total_weeks": 66, "max_weeks": 66, "min_weeks": 66, "avg_weeks": 66.0, "worst_urgency": "critical", "worst_priority": 4, "urgency_composition": {"critical": 1}, "urgency_color": "#e74c3c", "total_cost": 23100}, {"cluster_id": 60, "lon": -8.6453977, "lat": 52.6728583, "property_count": 1, "properties": [{"address": "MAYORSTONE", "reason": "Major Refurbishment", "weeks": 68, "years": 1.3, "months": 15.7, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 23800}], "total_weeks": 68, "max_weeks": 68, "min_weeks": 68, "avg_weeks": 68.0, "worst_urgency": "critical", "worst_priority": 4, "urgency_composition": {"critical": 1}, "urgency_color": "#e74c3c", "total_cost": 23800}, {"cluster_id": 61, "lon": -9.1085748, "lat": 52.6017221, "property_count": 2, "properties": [{"address": "SHANAGOLDEN", "reason": "Major Refurbishment", "weeks": 106, "years": 2.0, "months": 24.5, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 37100}, {"address": "SHANAGOLDEN", "reason": "For Demolition", "weeks": 80, "years": 1.5, "months": 18.5, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#8e44ad", "cost_burden": 28000}], "total_weeks": 186, "max_weeks": 106, "min_weeks": 80, "avg_weeks": 93.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"critical": 1, "crisis": 1}, "urgency_color": "#8b0000", "total_cost": 65100}, {"cluster_id": 62, "lon": -8.781955, "lat": 52.4017549, "property_count": 1, "properties": [{"address": "BALLYAGRAN", "reason": "Major Refurbishment", "weeks": 95, "years": 1.8, "months": 21.9, "urgency_tier": "critical", "urgency_priority": 4, "urgency_color": "#e74c3c", "reason_color": "#e67e22", "cost_burden": 33250}], "total_weeks": 95, "max_weeks": 95, "min_weeks": 95, "avg_weeks": 95.0, "worst_urgency": "critical", "worst_priority": 4, "urgency_composition": {"critical": 1}, "urgency_color": "#e74c3c", "total_cost": 33250}, {"cluster_id": 63, "lon": -9.1900744, "lat": 52.5597181, "property_count": 1, "properties": [{"address": "BALLYHAHILL", "reason": "Major Refurbishment", "weeks": 111, "years": 2.1, "months": 25.6, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 38850}], "total_weeks": 111, "max_weeks": 111, "min_weeks": 111, "avg_weeks": 111.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 1}, "urgency_color": "#8b0000", "total_cost": 38850}, {"cluster_id": 64, "lon": -8.6379527, "lat": 52.6507831, "property_count": 1, "properties": [{"address": "NEW STREET", "reason": "On-hold", "weeks": 112, "years": 2.2, "months": 25.9, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#7f8c8d", "cost_burden": 39200}], "total_weeks": 112, "max_weeks": 112, "min_weeks": 112, "avg_weeks": 112.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 1}, "urgency_color": "#8b0000", "total_cost": 39200}, {"cluster_id": 65, "lon": -8.6241404, "lat": 52.6718404, "property_count": 1, "properties": [{"address": "KINGS ISLAND", "reason": "Section 183", "weeks": 119, "years": 2.3, "months": 27.5, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#c0392b", "cost_burden": 41650}], "total_weeks": 119, "max_weeks": 119, "min_weeks": 119, "avg_weeks": 119.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 1}, "urgency_color": "#8b0000", "total_cost": 41650}, {"cluster_id": 66, "lon": -8.5474944, "lat": 52.4755288, "property_count": 1, "properties": [{"address": "BRUFF", "reason": "Major Refurbishment", "weeks": 126, "years": 2.4, "months": 29.1, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 44100}], "total_weeks": 126, "max_weeks": 126, "min_weeks": 126, "avg_weeks": 126.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 1}, "urgency_color": "#8b0000", "total_cost": 44100}, {"cluster_id": 67, "lon": -9.110556, "lat": 52.395556, "property_count": 1, "properties": [{"address": "STRAND", "reason": "Awaiting Minor Repairs", "weeks": 132, "years": 2.5, "months": 30.5, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#3498db", "cost_burden": 46200}], "total_weeks": 132, "max_weeks": 132, "min_weeks": 132, "avg_weeks": 132.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 1}, "urgency_color": "#8b0000", "total_cost": 46200}, {"cluster_id": 68, "lon": -8.6125188, "lat": 52.6655905, "property_count": 1, "properties": [{"address": "CLARE STREET", "reason": "To Be Allocated", "weeks": 148, "years": 2.8, "months": 34.2, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#f39c12", "cost_burden": 51800}], "total_weeks": 148, "max_weeks": 148, "min_weeks": 148, "avg_weeks": 148.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 1}, "urgency_color": "#8b0000", "total_cost": 51800}, {"cluster_id": 69, "lon": -8.6494406, "lat": 52.6359639, "property_count": 1, "properties": [{"address": "DOORADOYLE", "reason": "On-hold", "weeks": 229, "years": 4.4, "months": 52.9, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#7f8c8d", "cost_burden": 80150}], "total_weeks": 229, "max_weeks": 229, "min_weeks": 229, "avg_weeks": 229.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 1}, "urgency_color": "#8b0000", "total_cost": 80150}, {"cluster_id": 70, "lon": -8.5360769, "lat": 52.6661901, "property_count": 1, "properties": [{"address": "ANNACOTTY", "reason": "For Demolition", "weeks": 233, "years": 4.5, "months": 53.8, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#8e44ad", "cost_burden": 81550}], "total_weeks": 233, "max_weeks": 233, "min_weeks": 233, "avg_weeks": 233.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 1}, "urgency_color": "#8b0000", "total_cost": 81550}, {"cluster_id": 71, "lon": -8.6405721, "lat": 52.3850271, "property_count": 1, "properties": [{"address": "MOUNTBLAKENEY", "reason": "Demountable", "weeks": 244, "years": 4.7, "months": 56.4, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#95a5a6", "cost_burden": 85400}], "total_weeks": 244, "max_weeks": 244, "min_weeks": 244, "avg_weeks": 244.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 1}, "urgency_color": "#8b0000", "total_cost": 85400}, {"cluster_id": 72, "lon": -8.6099935, "lat": 52.6463651, "property_count": 1, "properties": [{"address": "SOUTHILL", "reason": "For Demolition", "weeks": 247, "years": 4.8, "months": 57.0, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#8e44ad", "cost_burden": 86450}], "total_weeks": 247, "max_weeks": 247, "min_weeks": 247, "avg_weeks": 247.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 1}, "urgency_color": "#8b0000", "total_cost": 86450}, {"cluster_id": 73, "lon": -8.6435867, "lat": 52.6454802, "property_count": 1, "properties": [{"address": "BALLINACURRA ROAD", "reason": "Allocated", "weeks": 289, "years": 5.6, "months": 66.7, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#27ae60", "cost_burden": 101150}], "total_weeks": 289, "max_weeks": 289, "min_weeks": 289, "avg_weeks": 289.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 1}, "urgency_color": "#8b0000", "total_cost": 101150}, {"cluster_id": 74, "lon": -8.6175651, "lat": 52.6822243, "property_count": 1, "properties": [{"address": "MILL ROAD", "reason": "For Demolition", "weeks": 319, "years": 6.1, "months": 73.7, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#8e44ad", "cost_burden": 111650}], "total_weeks": 319, "max_weeks": 319, "min_weeks": 319, "avg_weeks": 319.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 1}, "urgency_color": "#8b0000", "total_cost": 111650}, {"cluster_id": 75, "lon": -8.5788457, "lat": 52.6655975, "property_count": 1, "properties": [{"address": "DUBLIN ROAD", "reason": "For Demolition", "weeks": 330, "years": 6.3, "months": 76.2, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#8e44ad", "cost_burden": 115500}], "total_weeks": 330, "max_weeks": 330, "min_weeks": 330, "avg_weeks": 330.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 1}, "urgency_color": "#8b0000", "total_cost": 115500}, {"cluster_id": 76, "lon": -8.9088061, "lat": 52.3392885, "property_count": 1, "properties": [{"address": "DROMCOLLOGHER", "reason": "Major Refurbishment", "weeks": 373, "years": 7.2, "months": 86.1, "urgency_tier": "crisis", "urgency_priority": 5, "urgency_color": "#8b0000", "reason_color": "#e67e22", "cost_burden": 130550}], "total_weeks": 373, "max_weeks": 373, "min_weeks": 373, "avg_weeks": 373.0, "worst_urgency": "crisis", "worst_priority": 5, "urgency_composition": {"crisis": 1}, "urgency_color": "#8b0000", "total_cost": 130550}], "stats": {"total_properties": 265, "total_clusters": 77, "total_weeks_vacant": 26596, "avg_vacancy_weeks": 100.3622641509434, "median_vacancy_weeks": 50.0, "total_cost_burden": 9308600, "by_urgency": {"concerning": 45, "crisis": 82, "critical": 45, "routine": 31, "urgent": 62}, "by_reason": {"Allocated": 36, "Awaiting Minor Repairs": 67, "Demountable": 1, "For Demolition": 28, "Major Refurbishment": 81, "On-hold": 8, "Section 183": 31, "To Be Allocated": 13}, "longest_vacant": {"address": "MOYROSS", "weeks": 834, "years": 16.0}}, "urgency_colors": {"routine": "#bdc3c7", "concerning": "#f1c40f", "urgent": "#e67e22", "critical": "#e74c3c", "crisis": "#8b0000"}, "reason_colors": {"Allocated": "#27ae60", "Awaiting Minor Repairs": "#3498db", "To Be Allocated": "#f39c12", "For Demolition": "#8e44ad", "Major Refurbishment": "#e67e22", "Section 183": "#c0392b", "On-hold": "#7f8c8d", "Demountable": "#95a5a6", "Unknown": "#34495e"}, "urgency_tiers": {"routine": {"max_weeks": 8, "label": "Routine Maintenance", "priority": 1}, "concerning": {"max_weeks": 26, "label": "Concerning (2-6 months)", "priority": 2}, "urgent": {"max_weeks": 52, "label": "Urgent (6-12 months)", "priority": 3}, "critical": {"max_weeks": 104, "label": "Critical (1-2 years)", "priority": 4}, "crisis": {"max_weeks": Infinity, "label": "Crisis (2+ years)", "priority": 5}}};
+let currentMode = 'urgency';
+let activeFilters = new Set(['routine', 'concerning', 'urgent', 'critical', 'crisis']);
+
+// Initialize map
+const map = L.map('map', {
+    zoomControl: true,
+    preferCanvas: false
+}).setView([52.66, -8.63], 12);
+
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '&copy; OSM contributors'
+}).addTo(map);
+
+// Create SVG overlay
+const svg = d3.select(map.getPanes().overlayPane)
+    .append('svg')
+    .attr('class', 'leaflet-zoom-hide')
+    .style('position', 'absolute')
+    .style('z-index', '650');
+
+const g = svg.append('g').attr('class', 'leaflet-zoom-hide');
+const gCircles = g.append('g').attr('class', 'circles');
+
+const card = document.getElementById('card');
+
+// Update stats
+document.getElementById('stat-total').textContent = DATA.stats.total_properties;
+document.getElementById('stat-locations').textContent = DATA.stats.total_clusters;
+document.getElementById('stat-avg').textContent = Math.round(DATA.stats.avg_vacancy_weeks);
+document.getElementById('stat-crisis').textContent = DATA.stats.by_urgency.crisis || 0;
+
+// Resize and reposition SVG to match map bounds
+function resetSvg() {
+    const bounds = map.getBounds();
+    const topLeft = map.latLngToLayerPoint(bounds.getNorthWest());
+    const bottomRight = map.latLngToLayerPoint(bounds.getSouthEast());
+    
+    const width = bottomRight.x - topLeft.x;
+    const height = bottomRight.y - topLeft.y;
+    
+    svg
+        .attr('width', width)
+        .attr('height', height)
+        .style('left', topLeft.x + 'px')
+        .style('top', topLeft.y + 'px');
+    
+    g.attr('transform', `translate(${-topLeft.x},${-topLeft.y})`);
+}
+
+map.on('resize', resetSvg);
+map.on('viewreset', resetSvg);
+map.on('zoom', resetSvg);
+map.on('move', resetSvg);
+resetSvg();
+
+// Card functions with click-to-pin behavior
+let currentCluster = null;
+let isCardPinned = false;
+
+function showCard(cluster, event, shouldPin = false) {
+    currentCluster = cluster;
+    
+    if (shouldPin) {
+        isCardPinned = true;
+    }
+    
+    const showExpanded = isCardPinned;
+    
+    let html = `<div class="hovercard-header">`;
+    
+    if (cluster.property_count > 1) {
+        html += `${cluster.property_count} Properties at this Location`;
+        if (isCardPinned) {
+            html += ` <span style="color: #27ae60; font-size: 11px;">📌 Pinned</span>`;
+        }
+    } else {
+        html += cluster.properties[0].address;
+    }
+    
+    html += `</div>`;
+    
+    // Show cluster summary for multi-property locations
+    if (cluster.property_count > 1) {
+        html += `<div class="cluster-summary">`;
+        html += `<strong>Total vacant:</strong> ${cluster.total_weeks} weeks<br>`;
+        html += `<strong>Range:</strong> ${cluster.min_weeks} - ${cluster.max_weeks} weeks<br>`;
+        html += `<strong>Average:</strong> ${cluster.avg_weeks} weeks<br>`;
+        html += `<strong>Total cost:</strong> €${(cluster.total_cost/1000).toFixed(1)}k`;
+        
+        // Show urgency composition bar
+        const tierOrder = ['routine', 'concerning', 'urgent', 'critical', 'crisis'];
+        html += `<div style="margin-top: 8px;"><strong>Urgency Mix:</strong></div>`;
+        html += `<div class="composition-bar">`;
+        tierOrder.forEach(tier => {
+            const count = cluster.urgency_composition[tier] || 0;
+            if (count > 0) {
+                const percentage = (count / cluster.property_count) * 100;
+                html += `<div class="composition-segment" style="width: ${percentage}%; background: ${DATA.urgency_colors[tier]}" title="${DATA.urgency_tiers[tier].label}: ${count}"></div>`;
+            }
+        });
+        html += `</div>`;
+        
+        // List urgency counts
+        html += `<div style="font-size: 10px; margin-top: 4px;">`;
+        tierOrder.forEach(tier => {
+            const count = cluster.urgency_composition[tier] || 0;
+            if (count > 0) {
+                html += `<span style="color: ${DATA.urgency_colors[tier]}">● ${count} ${DATA.urgency_tiers[tier].label}</span> `;
+            }
+        });
+        html += `</div>`;
+        
+        html += `</div>`;
+    }
+    
+    // Determine how many properties to show
+    const showCount = showExpanded ? cluster.property_count : Math.min(3, cluster.property_count);
+    const hasMore = cluster.property_count > 3;
+    
+    // Show each property
+    cluster.properties.slice(0, showCount).forEach((prop) => {
+        const durationText = prop.years >= 1 ? `${prop.years} years` : `${prop.months} months`;
+        const urgencyLabel = DATA.urgency_tiers[prop.urgency_tier].label;
+        
+        html += `
+            <div class="property-item" style="border-left-color: ${prop.urgency_color}">
+                <div class="property-header">
+                    ${prop.address}
+                    <span class="urgency-badge" style="background:${prop.urgency_color}">${urgencyLabel}</span>
+                </div>
+                <div class="property-detail"><strong>Status:</strong> ${prop.reason}</div>
+                <div class="property-detail"><strong>Vacant:</strong> ${durationText} (${prop.weeks} weeks)</div>
+                <div class="property-detail"><strong>Est. cost:</strong> €${(prop.cost_burden/1000).toFixed(1)}k</div>
+            </div>
+        `;
+    });
+    
+    // Show hint if there are more properties
+    if (hasMore && !isCardPinned) {
+        html += `
+            <div style="text-align: center; padding: 10px; margin-top: 10px; 
+                        background: linear-gradient(135deg, #3498db, #2980b9); 
+                        border-radius: 8px; font-size: 12px; color: white;
+                        font-weight: 600; box-shadow: 0 2px 8px rgba(52, 152, 219, 0.3);">
+                👆 Click circle to pin & see all ${cluster.property_count} properties
+            </div>
+        `;
+    }
+    
+    card.innerHTML = html;
+    card.style.display = 'block';
+    
+    // Make card scrollable when pinned
+    if (isCardPinned) {
+        card.style.pointerEvents = 'auto';
+    } else {
+        card.style.pointerEvents = 'none';
+    }
+    
+    // Position card
+    const x = event.pageX || event.clientX;
+    const y = event.pageY || event.clientY;
+    const cardWidth = 380;
+    const cardHeight = card.offsetHeight;
+    let left = x + 15;
+    let top = y + 15;
+    
+    if (left + cardWidth > window.innerWidth) {
+        left = x - cardWidth - 15;
+    }
+    if (top + cardHeight > window.innerHeight) {
+        top = window.innerHeight - cardHeight - 20;
+    }
+    if (left < 0) left = 10;
+    if (top < 0) top = 10;
+    
+    card.style.left = left + 'px';
+    card.style.top = top + 'px';
+}
+
+function hideCard() { 
+    card.style.display = 'none';
+    card.style.pointerEvents = 'none';
+    currentCluster = null;
+    isCardPinned = false;
+}
+
+map.on('movestart', hideCard);
+map.on('zoomstart', hideCard);
+map.on('click', hideCard);
+
+// Calculate radius based on zoom and property count
+const BASE_SIZE = 6;
+function getRadius(cluster, zoom) {
+    const zoomFactor = Math.pow(1.3, zoom - 12); // Scale with zoom
+    const countFactor = Math.sqrt(cluster.property_count); // Scale with property count
+    return Math.max(4, Math.min(40, BASE_SIZE * zoomFactor * countFactor));
+}
+
+// Get color for cluster based on mode
+function getColor(cluster) {
+    if (currentMode === 'urgency') {
+        return cluster.urgency_color;
+    } else {
+        // Use worst property's reason color
+        return cluster.properties[0].reason_color;
+    }
+}
+
+// Filter clusters based on active urgency filters
+function getFilteredClusters() {
+    return DATA.clusters.filter(c => {
+        // Include if ANY property matches active filters
+        return c.properties.some(p => activeFilters.has(p.urgency_tier));
+    });
+}
+
+// Draw circles with PIE CHART composition
+let dotSelection;
+
+function updateCircles() {
+    const filteredClusters = getFilteredClusters();
+    const zoom = map.getZoom();
+    
+    // Update SVG positioning
+    resetSvg();
+    
+    const clusters = gCircles.selectAll('g.vacancy-cluster')
+        .data(filteredClusters, d => d.cluster_id);
+    
+    // Remove old clusters
+    clusters.exit().remove();
+    
+    // Add new cluster groups
+    const enter = clusters.enter()
+        .append('g')
+        .attr('class', 'vacancy-cluster')
+        .style('cursor', 'pointer');
+    
+    // Build each cluster
+    enter.each(function(d) {
+        const grp = d3.select(this);
+        const r = getRadius(d, zoom);
+        
+        if (d.property_count === 1) {
+            // Single property - solid circle
+            // Use urgency color in urgency mode, reason color in reason mode
+            const fillColor = currentMode === 'urgency' ? d.urgency_color : d.properties[0].reason_color;
+            
+            grp.append('circle')
+                .attr('class', 'main-circle')
+                .attr('r', r)
+                .attr('fill', fillColor)
+                .attr('stroke', '#fff')
+                .attr('stroke-width', 2)
+                .attr('opacity', 0.85);
+        } else {
+            // Multi-property - draw pie slices
+            if (currentMode === 'urgency') {
+                // Urgency mode: show pie chart composition
+                const tiers = ['routine', 'concerning', 'urgent', 'critical', 'crisis'];
+                let ang = -Math.PI / 2; // Start at top
+                
+                tiers.forEach(tier => {
+                    const cnt = d.urgency_composition[tier] || 0;
+                    if (cnt > 0) {
+                        const span = (cnt / d.property_count) * 2 * Math.PI;
+                        const end = ang + span;
+                        
+                        // Calculate slice path
+                        const x1 = Math.cos(ang) * r;
+                        const y1 = Math.sin(ang) * r;
+                        const x2 = Math.cos(end) * r;
+                        const y2 = Math.sin(end) * r;
+                        
+                        const largeArcFlag = span > Math.PI ? 1 : 0;
+                        
+                        const pathData = [
+                            `M 0 0`,
+                            `L ${x1} ${y1}`,
+                            `A ${r} ${r} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+                            `Z`
+                        ].join(' ');
+                        
+                        grp.append('path')
+                            .attr('class', 'pie-slice')
+                            .attr('d', pathData)
+                            .attr('fill', DATA.urgency_colors[tier])
+                            .attr('stroke', '#fff')
+                            .attr('stroke-width', 1)
+                            .attr('opacity', 0.9);
+                        
+                        ang = end;
+                    }
+                });
+                
+                // Add outer border
+                grp.append('circle')
+                    .attr('class', 'border-circle')
+                    .attr('r', r)
+                    .attr('fill', 'none')
+                    .attr('stroke', '#fff')
+                    .attr('stroke-width', 2.5);
+            } else {
+                // Reason mode: use worst urgency color as base
+                grp.append('circle')
+                    .attr('class', 'main-circle')
+                    .attr('r', r)
+                    .attr('fill', d.properties[0].reason_color)
+                    .attr('stroke', '#fff')
+                    .attr('stroke-width', 2)
+                    .attr('opacity', 0.85);
+            }
+        }
+        
+        // Add invisible larger hitbox for easier clicking
+        grp.append('circle')
+            .attr('class', 'hitbox')
+            .attr('r', r * 2.5) // 2.5x larger hitbox
+            .attr('fill', 'transparent')
+            .attr('stroke', 'none')
+            .style('pointer-events', 'all');
+    });
+    
+    // Add interaction handlers
+    enter
+        .on('mouseenter', function(event, d) {
+            if (!isCardPinned) {
+                d3.select(this).raise();
+                d3.select(this).selectAll('circle.main-circle, path.pie-slice')
+                    .transition()
+                    .duration(150)
+                    .attr('opacity', 1);
+                
+                d3.select(this).selectAll('circle')
+                    .transition()
+                    .duration(150)
+                    .attr('stroke-width', d.property_count === 1 ? 3.5 : 4);
+                
+                showCard(d, event, false);
+            }
+        })
+        .on('mousemove', function(event, d) {
+            if (!isCardPinned) {
+                showCard(d, event, false);
+            }
+        })
+        .on('mouseleave', function(event, d) {
+            if (!isCardPinned) {
+                d3.select(this).selectAll('circle.main-circle, path.pie-slice')
+                    .transition()
+                    .duration(150)
+                    .attr('opacity', d.property_count === 1 ? 0.85 : 0.9);
+                
+                d3.select(this).selectAll('circle.main-circle')
+                    .transition()
+                    .duration(150)
+                    .attr('stroke-width', 2);
+                
+                d3.select(this).selectAll('circle.border-circle')
+                    .transition()
+                    .duration(150)
+                    .attr('stroke-width', 2.5);
+                
+                hideCard();
+            }
+        })
+        .on('click', function(event, d) {
+            event.preventDefault();
+            event.stopPropagation();
+            
+            // Pin the card and show all properties
+            isCardPinned = true;
+            showCard(d, event, true);
+            
+            // Reset all clusters
+            d3.selectAll('g.vacancy-cluster')
+                .selectAll('circle.main-circle, path.pie-slice')
+                .transition()
+                .duration(150)
+                .attr('opacity', function() {
+                    const parent = d3.select(this.parentNode);
+                    const data = parent.datum();
+                    return data && data.property_count === 1 ? 0.85 : 0.9;
+                });
+            
+            d3.selectAll('g.vacancy-cluster')
+                .selectAll('circle.main-circle')
+                .transition()
+                .duration(150)
+                .attr('stroke-width', 2);
+            
+            d3.selectAll('g.vacancy-cluster')
+                .selectAll('circle.border-circle')
+                .transition()
+                .duration(150)
+                .attr('stroke-width', 2.5);
+            
+            // Highlight clicked cluster
+            d3.select(this).raise();
+            d3.select(this).selectAll('circle.main-circle, path.pie-slice')
+                .transition()
+                .duration(150)
+                .attr('opacity', 1);
+            
+            d3.select(this).selectAll('circle')
+                .transition()
+                .duration(150)
+                .attr('stroke-width', 5);
+        });
+    
+    // Update existing + new
+    dotSelection = clusters.merge(enter);
+    
+    updateCirclePositions();
+}
+
+// Update positions and sizes
+function updateCirclePositions() {
+    if (!dotSelection) return;
+    
+    const zoom = map.getZoom();
+    
+    dotSelection.attr('transform', d => {
+        const pos = map.latLngToLayerPoint([d.lat, d.lon]);
+        return `translate(${pos.x},${pos.y})`;
+    });
+    
+    // Update single circle sizes and colors
+    dotSelection.selectAll('circle.main-circle')
+        .attr('r', d => getRadius(d, zoom))
+        .attr('fill', d => {
+            if (d.property_count === 1) {
+                return currentMode === 'urgency' ? d.urgency_color : d.properties[0].reason_color;
+            } else if (currentMode === 'reason') {
+                return d.properties[0].reason_color;
+            }
+            return d.urgency_color; // fallback
+        });
+    
+    // Update hitboxes
+    dotSelection.selectAll('circle.hitbox')
+        .attr('r', d => getRadius(d, zoom) * 2.5);
+    
+    // Update pie chart sizes for multi-property clusters in urgency mode
+    dotSelection.filter(d => d.property_count > 1 && currentMode === 'urgency').each(function(d) {
+        const grp = d3.select(this);
+        const r = getRadius(d, zoom);
+        
+        // Rebuild pie slices with new radius
+        const tiers = ['routine', 'concerning', 'urgent', 'critical', 'crisis'];
+        let ang = -Math.PI / 2;
+        let sliceIdx = 0;
+        
+        tiers.forEach(tier => {
+            const cnt = d.urgency_composition[tier] || 0;
+            if (cnt > 0) {
+                const span = (cnt / d.property_count) * 2 * Math.PI;
+                const end = ang + span;
+                
+                const x1 = Math.cos(ang) * r;
+                const y1 = Math.sin(ang) * r;
+                const x2 = Math.cos(end) * r;
+                const y2 = Math.sin(end) * r;
+                
+                const largeArcFlag = span > Math.PI ? 1 : 0;
+                
+                const pathData = [
+                    `M 0 0`,
+                    `L ${x1} ${y1}`,
+                    `A ${r} ${r} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+                    `Z`
+                ].join(' ');
+                
+                grp.selectAll('path.pie-slice')
+                    .filter((_, i) => i === sliceIdx)
+                    .attr('d', pathData);
+                
+                ang = end;
+                sliceIdx++;
+            }
+        });
+        
+        grp.select('circle.border-circle').attr('r', r);
+    });
+}
+
+// Update on map events
+function onMapMove() {
+    resetSvg();
+    updateCirclePositions();
+}
+
+function onMapZoom() {
+    resetSvg();
+    updateCirclePositions();
+}
+
+map.on('moveend', onMapMove);
+map.on('zoomend', onMapZoom);
+
+map.whenReady(() => { 
+    updateCircles(); 
+});
+
+// Mode switching
+document.querySelectorAll('.mode-btn[data-mode]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.mode-btn[data-mode]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentMode = btn.dataset.mode;
+        updateLegend();
+        updateCircles();
+    });
+});
+
+// Urgency filters
+function createUrgencyFilters() {
+    const container = document.getElementById('urgency-filters');
+    const tierOrder = ['routine', 'concerning', 'urgent', 'critical', 'crisis'];
+    
+    tierOrder.forEach(tier => {
+        const info = DATA.urgency_tiers[tier];
+        const count = DATA.stats.by_urgency[tier] || 0;
+        
+        const div = document.createElement('div');
+        div.className = 'urgency-filter';
+        div.innerHTML = `
+            <input type="checkbox" id="filter-${tier}" checked>
+            <span class="urgency-dot" style="background:${DATA.urgency_colors[tier]}"></span>
+            <span class="urgency-label">${info.label}</span>
+            <span class="urgency-count">${count}</span>
+        `;
+        
+        const checkbox = div.querySelector('input');
+        checkbox.addEventListener('change', () => {
+            if (checkbox.checked) {
+                activeFilters.add(tier);
+            } else {
+                activeFilters.delete(tier);
+            }
+            updateCircles();
+        });
+        
+        container.appendChild(div);
+    });
+}
+
+// Legend
+function updateLegend() {
+    const legend = document.getElementById('legend');
+    const colors = currentMode === 'urgency' ? DATA.urgency_colors : DATA.reason_colors;
+    const title = currentMode === 'urgency' ? 'Urgency Level' : 'Vacancy Reason';
+    
+    let html = `<div class="legend-title">${title}</div>`;
+    
+    if (currentMode === 'urgency') {
+        const tierOrder = ['routine', 'concerning', 'urgent', 'critical', 'crisis'];
+        tierOrder.forEach(tier => {
+            const info = DATA.urgency_tiers[tier];
+            const count = DATA.stats.by_urgency[tier] || 0;
+            html += `
+                <div class="legend-item">
+                    <span class="legend-dot" style="background:${colors[tier]}"></span>
+                    <span class="legend-label">${info.label}</span>
+                    <span class="legend-value">${count}</span>
+                </div>
+            `;
+        });
+        
+        html += `<div style="margin-top: 10px; font-size: 10px; color: #7f8c8d; padding-top: 8px; border-top: 1px solid #ecf0f1;">`;
+        html += `<strong>Circle size</strong> = # of properties<br>`;
+        html += `<strong>Pie slices</strong> = urgency mix`;
+        html += `</div>`;
+    } else {
+        Object.entries(DATA.stats.by_reason).forEach(([reason, count]) => {
+            html += `
+                <div class="legend-item">
+                    <span class="legend-dot" style="background:${colors[reason] || '#34495e'}"></span>
+                    <span class="legend-label">${reason}</span>
+                    <span class="legend-value">${count}</span>
+                </div>
+            `;
+        });
+    }
+    
+    legend.innerHTML = html;
+}
+
+// Initialize
+createUrgencyFilters();
+updateLegend();
+
+// Add click handler to close card when clicking map
+map.on('click', hideCard);
+</script>
+</body></html>
