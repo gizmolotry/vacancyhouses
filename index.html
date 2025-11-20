@@ -1,6 +1,7 @@
 # build_vacancies_limerick_enhanced.py
 # FULLY ROBUST VERSION - Complete interactive visualization with pie charts
 # All features: comprehensive filters, legends, stats, mode switching, detailed hover cards
+# FIXED: Pie chart colors now correctly update when switching between Urgency and Reason modes
 
 import json, time, random
 import pandas as pd
@@ -249,6 +250,9 @@ for cluster_id, indices in enumerate(clusters):
     # Sort properties by urgency (worst first)
     properties.sort(key=lambda p: -p["urgency_priority"])
     
+    # Build reason composition for Reason mode pie charts
+    reason_composition = cluster_df["Reason"].value_counts().to_dict()
+    
     cluster_data.append({
         "cluster_id": cluster_id,
         "lon": float(center_lon),
@@ -262,6 +266,7 @@ for cluster_id, indices in enumerate(clusters):
         "worst_urgency": worst_urgency,
         "worst_priority": int(worst_priority),
         "urgency_composition": urgency_composition,  # How many of each tier
+        "reason_composition": reason_composition,  # How many of each reason
         "urgency_color": URGENCY_COLORS[worst_urgency],
         "total_cost": sum(p["cost_burden"] for p in properties)
     })
@@ -275,7 +280,7 @@ payload = json.dumps({
 }, ensure_ascii=False)
 
 # ═══════════════════════════════════════════════════════════════
-# Enhanced HTML with all robust features + pie charts
+# Enhanced HTML with all robust features + FIXED pie charts
 # ═══════════════════════════════════════════════════════════════
 HTML = r"""<!doctype html>
 <html lang="en"><head>
@@ -644,7 +649,7 @@ function getFilteredClusters() {
     });
 }
 
-// Draw circles with PIE CHART composition
+// Draw circles with PIE CHART composition - FIXED VERSION
 let dotSelection;
 
 function updateCircles() {
@@ -673,7 +678,6 @@ function updateCircles() {
         
         if (d.property_count === 1) {
             // Single property - solid circle
-            // Use urgency color in urgency mode, reason color in reason mode
             const fillColor = currentMode === 'urgency' ? d.urgency_color : d.properties[0].reason_color;
             
             grp.append('circle')
@@ -684,9 +688,8 @@ function updateCircles() {
                 .attr('stroke-width', 2)
                 .attr('opacity', 0.85);
         } else {
-            // Multi-property - draw pie slices
+            // Multi-property - draw pie slices in urgency mode
             if (currentMode === 'urgency') {
-                // Urgency mode: show pie chart composition
                 const tiers = ['routine', 'concerning', 'urgent', 'critical', 'crisis'];
                 let ang = -Math.PI / 2; // Start at top
                 
@@ -731,7 +734,7 @@ function updateCircles() {
                     .attr('stroke', '#fff')
                     .attr('stroke-width', 2.5);
             } else {
-                // Reason mode: use worst urgency color as base
+                // Reason mode: solid circle with worst property's reason color
                 grp.append('circle')
                     .attr('class', 'main-circle')
                     .attr('r', r)
@@ -745,7 +748,7 @@ function updateCircles() {
         // Add invisible larger hitbox for easier clicking
         grp.append('circle')
             .attr('class', 'hitbox')
-            .attr('r', r * 2.5) // 2.5x larger hitbox
+            .attr('r', r * 2.5)
             .attr('fill', 'transparent')
             .attr('stroke', 'none')
             .style('pointer-events', 'all');
@@ -798,7 +801,6 @@ function updateCircles() {
             event.preventDefault();
             event.stopPropagation();
             
-            // Pin the card and show all properties
             isCardPinned = true;
             showCard(d, event, true);
             
@@ -844,7 +846,7 @@ function updateCircles() {
     updateCirclePositions();
 }
 
-// Update positions and sizes
+// Update positions and sizes - FIXED TO PROPERLY HANDLE MODE SWITCHING
 function updateCirclePositions() {
     if (!dotSelection) return;
     
@@ -855,62 +857,73 @@ function updateCirclePositions() {
         return `translate(${pos.x},${pos.y})`;
     });
     
-    // Update single circle sizes and colors
-    dotSelection.selectAll('circle.main-circle')
-        .attr('r', d => getRadius(d, zoom))
-        .attr('fill', d => {
-            if (d.property_count === 1) {
-                return currentMode === 'urgency' ? d.urgency_color : d.properties[0].reason_color;
-            } else if (currentMode === 'reason') {
-                return d.properties[0].reason_color;
-            }
-            return d.urgency_color; // fallback
-        });
-    
-    // Update hitboxes
-    dotSelection.selectAll('circle.hitbox')
-        .attr('r', d => getRadius(d, zoom) * 2.5);
-    
-    // Update pie chart sizes for multi-property clusters in urgency mode
-    dotSelection.filter(d => d.property_count > 1 && currentMode === 'urgency').each(function(d) {
+    // Update all clusters
+    dotSelection.each(function(d) {
         const grp = d3.select(this);
         const r = getRadius(d, zoom);
         
-        // Rebuild pie slices with new radius
-        const tiers = ['routine', 'concerning', 'urgent', 'critical', 'crisis'];
-        let ang = -Math.PI / 2;
-        let sliceIdx = 0;
-        
-        tiers.forEach(tier => {
-            const cnt = d.urgency_composition[tier] || 0;
-            if (cnt > 0) {
-                const span = (cnt / d.property_count) * 2 * Math.PI;
-                const end = ang + span;
+        if (d.property_count === 1) {
+            // Single property: update solid circle color based on mode
+            grp.selectAll('circle.main-circle')
+                .attr('r', r)
+                .attr('fill', currentMode === 'urgency' ? d.urgency_color : d.properties[0].reason_color);
+        } else {
+            // Multi-property cluster - hide/show elements based on mode
+            if (currentMode === 'urgency') {
+                // Urgency mode: show pie chart composition
+                grp.selectAll('circle.main-circle').style('display', 'none');
+                grp.selectAll('path.pie-slice').style('display', null);
+                grp.selectAll('circle.border-circle').style('display', null);
                 
-                const x1 = Math.cos(ang) * r;
-                const y1 = Math.sin(ang) * r;
-                const x2 = Math.cos(end) * r;
-                const y2 = Math.sin(end) * r;
+                // Rebuild pie slices with correct radius
+                const tiers = ['routine', 'concerning', 'urgent', 'critical', 'crisis'];
+                let ang = -Math.PI / 2;
+                let sliceIdx = 0;
                 
-                const largeArcFlag = span > Math.PI ? 1 : 0;
+                tiers.forEach(tier => {
+                    const cnt = d.urgency_composition[tier] || 0;
+                    if (cnt > 0) {
+                        const span = (cnt / d.property_count) * 2 * Math.PI;
+                        const end = ang + span;
+                        
+                        const x1 = Math.cos(ang) * r;
+                        const y1 = Math.sin(ang) * r;
+                        const x2 = Math.cos(end) * r;
+                        const y2 = Math.sin(end) * r;
+                        
+                        const largeArcFlag = span > Math.PI ? 1 : 0;
+                        
+                        const pathData = [
+                            `M 0 0`,
+                            `L ${x1} ${y1}`,
+                            `A ${r} ${r} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+                            `Z`
+                        ].join(' ');
+                        
+                        grp.selectAll('path.pie-slice')
+                            .filter((_, i) => i === sliceIdx)
+                            .attr('d', pathData);
+                        
+                        ang = end;
+                        sliceIdx++;
+                    }
+                });
                 
-                const pathData = [
-                    `M 0 0`,
-                    `L ${x1} ${y1}`,
-                    `A ${r} ${r} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
-                    `Z`
-                ].join(' ');
+                grp.selectAll('circle.border-circle').attr('r', r);
+            } else {
+                // Reason mode: show solid circle with reason color
+                grp.selectAll('path.pie-slice').style('display', 'none');
+                grp.selectAll('circle.border-circle').style('display', 'none');
                 
-                grp.selectAll('path.pie-slice')
-                    .filter((_, i) => i === sliceIdx)
-                    .attr('d', pathData);
-                
-                ang = end;
-                sliceIdx++;
+                grp.selectAll('circle.main-circle')
+                    .style('display', null)
+                    .attr('r', r)
+                    .attr('fill', d.properties[0].reason_color);
             }
-        });
+        }
         
-        grp.select('circle.border-circle').attr('r', r);
+        // Update hitbox for all
+        grp.selectAll('circle.hitbox').attr('r', r * 2.5);
     });
 }
 
